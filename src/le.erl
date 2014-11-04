@@ -9,12 +9,16 @@
 
 -export([dir/1,is_string/1,kvmerge/2]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -include("utils.hrl").
 %% API
 
 
-%%===========================================================================  
-%%App verbosity 
+%%===========================================================================
+%%App verbosity
 %%===========================================================================
 dbg(on) ->
    setopt(debug,true);
@@ -25,7 +29,7 @@ dbg(off) ->
 dbg(Level) when is_integer(Level) ->
    setopt(debug,Level).
 
-%%===========================================================================  
+%%===========================================================================
 %%App configuration options
 %%===========================================================================
 %%TODO: provide option peristance to disk if user desires so
@@ -54,7 +58,7 @@ setopt(Option,Value) ->
    setopt(app(),Option,Value).
 
 setopt(App, Option, Value) when is_atom(App) ->
-   case app() of 
+   case app() of
       undefined ->
          try
             application:ensure_started(gproc),
@@ -76,7 +80,7 @@ opt(Option,Default) ->
    opt(app(),Option,Default).
 
 opt(App,Option,Default) when is_atom(App) ->
-   case app() of 
+   case app() of
       undefined ->
          try
             application:ensure_started(gproc),
@@ -89,7 +93,7 @@ opt(App,Option,Default) when is_atom(App) ->
    end.
 
 appdir() ->
-   case app() of 
+   case app() of
       undefined ->
          error(badarg);
       App ->
@@ -101,14 +105,14 @@ appdir(Appmod) when is_atom(Appmod) ->
    AppmodDir = case file:read_file_info(code:which(Appmod)) of
                {ok,_} -> filename:dirname(code:which(Appmod));
                {error,_} -> {ok,D} = file:get_cwd(),
-                            case string:str(D,".eunit") of 
+                            case string:str(D,".eunit") of
                                0 -> error(badarg);
                                _ -> D
                             end
                end,
    filename:dirname(AppmodDir).
 
-%% @doc Joins specified directories, allowing special tags. 
+%% @doc Joins specified directories, allowing special tags.
 %%
 %%      The subdirectories can be any of the following or a list of the following:
 %%      <dl>
@@ -116,7 +120,7 @@ appdir(Appmod) when is_atom(Appmod) ->
 %%      <dd>Any directory enclosed in quotes, e.g. "myfiles" or "myfiles/other"</dd>
 %%
 %%      <dt>`priv'</dt>
-%%      <dd>The priv directory for the current application. The application is 
+%%      <dd>The priv directory for the current application. The application is
 %%          presumed to have a module with the name returned by `application:get_application()'.
 %%          Use the option below if you have another module name."</dd>
 %%
@@ -124,7 +128,7 @@ appdir(Appmod) when is_atom(Appmod) ->
 %%      <dd>The priv directory for the application which contains the module `Appmod'."</dd>
 %%
 %%      <dt>`arch'</dt>
-%%      <dd>Will substitute the value returned by `erlang:system_info(system_architecture)', 
+%%      <dd>Will substitute the value returned by `erlang:system_info(system_architecture)',
 %%          e.g. "x86_64-unknown-linux-gnu"</dd>
 %%
 %%      <dt>`pwd' or `cwd'</dt>
@@ -138,21 +142,21 @@ appdir(Appmod) when is_atom(Appmod) ->
 %%      ```
 %%      1> le:dir([priv,arch]).
 %%      "/home/user/mydir/myappp/priv/x86_64-unknown-linux-gnu"
-%%      2> le:dir(priv).       
+%%      2> le:dir(priv).
 %%      "/home/user/mydir/myapp/priv"
 %%      3> le:dir([home,"adir","anotherdir"]).
 %%      "/home/user/adir/anotherdir"
 %%
 %%      '''
-%%      Note: If several path components are absolute path names, 
+%%      Note: If several path components are absolute path names,
 %%      the last one will take precedence. `home', `priv', `app' and
 %%      `cwd' (or `pwd') are absolute path names. `arch' is a relative
 %%      path name.
 dir(Paths) when is_list(Paths) ->
    case io_lib:char_list(Paths) of
       true -> Paths;
-      false -> 
-         Dirs1=[ case D of 
+      false ->
+         Dirs1=[ case D of
                   priv -> [appdir(),"priv"];
                   {priv,Appmod} -> [appdir(Appmod),"priv"];
                   app  -> appdir();
@@ -163,12 +167,17 @@ dir(Paths) when is_list(Paths) ->
                   home -> {ok, [[H]]} = init:get_argument(home),H;
                   Dir  -> Dir
                end || D <- le:flatdirs(Paths) ],
-         filename:join(le:flatdirs(Dirs1)) 
+         filename:join(le:flatdirs(Dirs1))
    end;
 
 dir(Path) when not is_list(Path) ->
    dir([Path]).
 
+%% @doc Merge KeyValue lists, original tuple order is NOT guaranteed.
+%%
+%%      Kvlist1 takes precedence over Kvlist2 when the keys are
+%%      equal. In this case, the tuple from Kvlist2 will be discarded.
+%% @end
 kvmerge([],Kvlist2) ->
    Kvlist2;
 
@@ -176,7 +185,7 @@ kvmerge(Kvlist1,[]) ->
    Kvlist1;
 
 kvmerge(Kvlist1,Kvlist2) ->
-   orddict:merge(fun(_Key,T1,_T2) -> T1 end, 
+   orddict:merge(fun(_Key,T1,_T2) -> T1 end,
                  orddict:from_list(Kvlist1),
                  orddict:from_list(Kvlist2)).
 
@@ -194,7 +203,7 @@ flatdirs([H|R]) ->
    [H|flatdirs(R)].
 
 
-is_string(L) -> 
+is_string(L) ->
    io_lib:char_list(L).
 
 % Internal functions
@@ -202,3 +211,94 @@ is_string(L) ->
 
 app() ->
    application:get_application().
+
+%%%---------------------------------------------------------------------
+%%% Unit testing
+%%%---------------------------------------------------------------------
+
+-ifdef(EUNIT).
+-define(tt(T,F), {T,timeout, 2, ?_test(F)}).
+-define(recvMatch(Value,Expr),
+        ?assertMatch(Value when Value =/=timeout,
+                     begin
+                        Expr,
+                        receive
+                           V -> V
+                        after
+                           4000 -> timeout
+                        end
+                     end)
+       ).
+
+
+exec_test_() ->
+    {setup,
+        fun() ->
+            ok
+        end,
+        fun(ok) ->
+            ok
+        end,
+        [
+            ?tt("per process options",test_process_opt()),
+            ?tt("application options",test_app_opt()),
+            ?tt("dir                ",test_dir()),
+            ?tt("kvmerge            ",test_kvmerge()),
+            ?tt("miscellaneous      ",test_misc())
+        ]
+    }.
+
+test_process_opt() ->
+   [
+      ?assertMatch(true,begin dbg(on), opt(debug) end),
+      ?assertMatch(10,begin dbg(10), opt(debug) end),
+      ?assertMatch(false,begin dbg(off), opt(debug) end),
+      ?assertMatch(15, opt(myopt,15) ),
+      ?assertError(badarg,default_from(myopt,[{myopt2,none},{myopt4,none}])),
+      ?assertMatch(one,default_from(myopt,[{myopt2,none},{myopt4,none},{myopt,one}]))
+   ].
+
+test_app_opt() ->
+   [
+      ?assertMatch(true,
+          begin
+             ok=application:start(liberl),
+             dbg(on),
+             D=application:get_env(liberl,debug),
+             application:stop(liberl),
+             D
+          end),
+      ?assertMatch(10,begin dbg(10), opt(debug) end),
+      ?assertMatch(false,begin dbg(off), opt(debug) end)
+   ].
+
+test_dir() ->
+   [
+      ?assertMatch("mydir",dir("mydir")),
+      ?assertMatch("mydir",dir(mydir)),
+      ?assertMatch("dir1/mydir",dir(["dir1","mydir"])),
+      ?assertMatch(true,init:get_argument(home)=={ok,[[dir(home)]]}),
+      ?assert(begin D=dir({app,le}),string:str(D,"liberl")>0 end),
+      ?assert(begin D=dir({priv,le}),string:str(D,"liberl/priv")>0 end),
+      ?assertMatch("/",begin file:set_cwd("/"),dir(cwd) end),
+      ?assertMatch("/",begin file:set_cwd("/"),dir(pwd) end),
+      ?assert(dir([arch])++"\n"==?cmd("gcc -dumpmachine"))
+   ].
+
+test_kvmerge() ->
+   [
+      ?assertMatch([{one,1},{three,3},{two,2}],
+                   kvmerge([{one,1},{two,2}],[{three,3},{one,2}])),
+      ?assertMatch([{three,3},{one,2}],
+                   kvmerge([],[{three,3},{one,2}])),
+      ?assertMatch([{three,3},{one,2}],
+                   kvmerge([{three,3},{one,2}],[])),
+      ?assertMatch([],
+                   kvmerge([],[]))
+   ].
+test_misc() ->
+   [
+      ?assert(is_string("hello")),
+      ?assert(is_string(55)/=true)
+   ].
+-endif.

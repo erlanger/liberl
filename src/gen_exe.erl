@@ -596,191 +596,191 @@ send_reply(RetBin,Reqmap) when is_binary(RetBin),
 %%% Unit testing
 %%%---------------------------------------------------------------------
 
--ifdef(EUNIT).
--define(tt(T,F), {T,timeout, 2, ?_test(F)}).
--define(recvMatch(Value,Expr),
-        ?assertMatch(Value when Value =/=timeout,
-                     begin
-                        Expr,
-                        receive
-                           V -> V
-                        after
-                           4000 -> timeout
-                        end
-                     end)
-       ).
-
-
-exec_test_() ->
-    {setup,
-        fun() ->
-            %Start app
-            ok=application:start(gproc),
-            ok=application:start(btune),
-            ok=application:start(gen_exe),
-            gen_exe:setdebug(0)
-        end,
-        fun(ok) ->
-            ok=application:stop(gproc),
-            ok=application:stop(btune),
-            ok=application:stop(gen_exe)
-        end,
-        [
-            ?tt("echo1",test_echo1()),
-            ?tt("echo2",test_echo2()),
-            ?tt("echo3",test_echo3()),
-            ?tt("echo4",test_echo4()),
-            ?tt("echo5",test_echo5()),
-            ?tt("echo6",test_echo6()),
-            ?tt("add_pipeline",test_pipeline()),
-            ?tt("rm_pipeline",test_rmpipeline()),
-            ?tt("pipeline w/metadata",test_pipeline_metadata()),
-            ?tt("metadata wait",test_metadata_wait()),
-            ?tt("metadata timeout",test_metadata_timeout()),
-            ?tt("wfall_line",test_wfall_line())
-        ]
-    }.
-
-test_echo1() ->
-   ?assertMatch(
-      [{<<1:1/float-native-unit:64,
-          2:1/float-native-unit:64,
-          3:1/float-native-unit:64>>,double}],
-      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}])
-   ).
-test_echo2() ->
-   ?assertMatch(
-      [{<<0,0,0,0,0,0,240,63,   0,0,0,0,0,0,0,64,  0,0,0,0,0,0,8,64>>, double},
-       {<<0,0,0,0,0,16,112,64,  0,0,0,0,0,0,240,63                 >>,double}],
-      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}],[{retval_count,2}])
-   ).
-test_echo3() ->
-   ?assertMatch(
-      [[1.0,2.0,3.0]],
-      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}],[result_as_list])
-   ).
-test_echo4() ->
-   ?assertMatch(
-      [[1.0,2.0,3.0],[257.0,1.0]],
-      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}],2,[result_as_list])
-   ).
-test_echo5() ->
-   ?assertMatch(
-      [[1.0,2.0,3.0],[5.1],[9.0],[256.0],[9223372036854775808.0],[9223372036854775808.0],[-1.0], [-1.0]],
-      begin
-         POW63f=math:pow(2,63),
-         POW63i=round(math:pow(2,63)),
-         octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},5.1,9,256,POW63f,POW63i,-1.0,-1],8,[result_as_list])
-      end
-   ).
-test_echo6() ->
-   ?assertMatch(
-      [[257.0],[257.0,1.0]],
-      octfun("egen_exe_mirror",[{<<1,1>>,uint16},{<<1,1,1,0>>,int16},5.1],2,[result_as_list])
-   ).
-
-test_pipeline() ->
-   ?recvMatch(
-      {gen_exeresult1,[{<<1:1/float-native-unit:64,
-          2:1/float-native-unit:64,
-          3:1/float-native-unit:64,
-          4:1/float-native-unit:64,
-          5:1/float-native-unit:64>>,double}]},
-      begin
-         add_pipeline(signal_data1,
-                      fun(Data) ->
-                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8}])
-                      end,
-                      gen_exeresult1),
-         btune:listen(gen_exeresult1),
-         btune:bcast(signal_data1, {signal_data1,<<1,2,3,4,5>>})
-      end
-   ).
-test_rmpipeline() ->
-   ?assertMatch(
-      [],
-      begin
-         add_pipeline(rm_signal_data,rm_signal_metadata,
-                      fun(Data,Metadata) ->
-                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8}])
-                      end,
-                      gen_exeresult),
-         Pid = whereis(gen_exeserver),
-         [{Pid,_}] = gproc:lookup_values({p,l,{pipeline,rm_signal_data}}),
-         [{Pid,_}] = gproc:lookup_values({p,l,rm_signal_data}),
-         rm_pipeline(rm_signal_data),
-         P0=gproc:lookup_values({p,l,{pipeline,rm_signal_data}}),
-         P1=gproc:lookup_values({p,l,{metadata,rm_signal_data}}),
-         P2=gproc:lookup_values({p,l,{metadatakey,rm_signal_metadata}}),
-         P3=gproc:lookup_values({p,l,rm_signal_data}),
-         P4=gproc:lookup_values({p,l,rm_signal_metadata}),
-         lists:flatten([P0,P1,P2,P3,P4])
-      end
-   ).
-test_pipeline_metadata() ->
-   ?recvMatch(
-      {gen_exeresult2,[{<<1:1/float-native-unit:64,
-          2:1/float-native-unit:64,
-          3:1/float-native-unit:64,
-          4:1/float-native-unit:64,
-          5:1/float-native-unit:64>>,double},
-       {<<10:1/float-native-unit:64,
-          20:1/float-native-unit:64,
-          30:1/float-native-unit:64>>,double}
-      ]},
-      begin
-         add_pipeline(signal_data2,signal_metadata2,
-                      fun(Data,Metadata) ->
-                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8},{Metadata,uint8}],2)
-                      end,
-                      gen_exeresult2),
-         btune:listen(gen_exeresult2),
-         btune:bcast(signal_metadata2, {signal_metadata2,<<10,20,30>>}),
-         btune:bcast(signal_data2, {signal_data2,<<1,2,3,4,5>>})
-      end
-   ).
-test_metadata_wait() ->
-   ?recvMatch(
-      {gen_exeresult3,[{<<1:1/float-native-unit:64,
-          2:1/float-native-unit:64,
-          3:1/float-native-unit:64,
-          4:1/float-native-unit:64,
-          5:1/float-native-unit:64>>,double},
-       {<<10:1/float-native-unit:64,
-          20:1/float-native-unit:64,
-          30:1/float-native-unit:64>>,double}
-      ]},
-      begin
-         add_pipeline(signal_data3,signal_metadata3,
-                      fun(Data,Metadata) ->
-                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8},{Metadata,uint8}],2)
-                      end,
-                      gen_exeresult3,[{wait_for_metadata,1000,[{<<1,2,3,4,5>>,uint8},{<<48,49,59>>,uint8}]}]),
-         btune:listen(gen_exeresult3),
-         btune:bcast(signal_data3, {signal_data3,<<1,2,3,4,5>>}),
-         timer:sleep(1), %Give a little chance for spawned process to register and begin listening
-         btune:bcast(signal_metadata3,{signal_metadata3,<<10,20,30>>})
-      end
-   ).
-test_metadata_timeout() ->
-   ?recvMatch(
-      {timeout_gen_exeresult,[[25.0],{<<48,49,59>>,uint8}]},
-      begin
-         add_pipeline(timeout_signal_data,timeout_signal_metadata,
-                      fun(Data,Metadata) ->
-                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8},{Metadata,uint8}],2)
-                      end,
-                      timeout_gen_exeresult,[{wait_for_metadata,100,[[25.0],{<<48,49,59>>,uint8}]}]),
-         btune:listen(timeout_gen_exeresult),
-         btune:bcast(timeout_signal_data, {timeout_signal_data,<<1,2,3,4,5>>})
-      end
-   ).
-test_wfall_line() ->
-   ?assertMatch(
-      [[255,138,106],[1500.0], [6000.0], [1500.0]],
-      begin
-         Sig = << <<X>> || X <- lists:seq(1,10) >>,
-         octfun("wfall_line",[{Sig,uint8},0,12000,10],4,[result_as_list])
-      end
-   ).
--endif.
+%-ifdef(EUNIT).
+%-define(tt(T,F), {T,timeout, 2, ?_test(F)}).
+%-define(recvMatch(Value,Expr),
+%        ?assertMatch(Value when Value =/=timeout,
+%                     begin
+%                        Expr,
+%                        receive
+%                           V -> V
+%                        after
+%                           4000 -> timeout
+%                        end
+%                     end)
+%       ).
+%
+%
+%exec_test_() ->
+%    {setup,
+%        fun() ->
+%            %Start app
+%            ok=application:start(gproc),
+%            ok=application:start(btune),
+%            ok=application:start(gen_exe),
+%            gen_exe:setdebug(0)
+%        end,
+%        fun(ok) ->
+%            ok=application:stop(gproc),
+%            ok=application:stop(btune),
+%            ok=application:stop(gen_exe)
+%        end,
+%        [
+%            ?tt("echo1",test_echo1()),
+%            ?tt("echo2",test_echo2()),
+%            ?tt("echo3",test_echo3()),
+%            ?tt("echo4",test_echo4()),
+%            ?tt("echo5",test_echo5()),
+%            ?tt("echo6",test_echo6()),
+%            ?tt("add_pipeline",test_pipeline()),
+%            ?tt("rm_pipeline",test_rmpipeline()),
+%            ?tt("pipeline w/metadata",test_pipeline_metadata()),
+%            ?tt("metadata wait",test_metadata_wait()),
+%            ?tt("metadata timeout",test_metadata_timeout()),
+%            ?tt("wfall_line",test_wfall_line())
+%        ]
+%    }.
+%
+%test_echo1() ->
+%   ?assertMatch(
+%      [{<<1:1/float-native-unit:64,
+%          2:1/float-native-unit:64,
+%          3:1/float-native-unit:64>>,double}],
+%      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}])
+%   ).
+%test_echo2() ->
+%   ?assertMatch(
+%      [{<<0,0,0,0,0,0,240,63,   0,0,0,0,0,0,0,64,  0,0,0,0,0,0,8,64>>, double},
+%       {<<0,0,0,0,0,16,112,64,  0,0,0,0,0,0,240,63                 >>,double}],
+%      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}],[{retval_count,2}])
+%   ).
+%test_echo3() ->
+%   ?assertMatch(
+%      [[1.0,2.0,3.0]],
+%      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}],[result_as_list])
+%   ).
+%test_echo4() ->
+%   ?assertMatch(
+%      [[1.0,2.0,3.0],[257.0,1.0]],
+%      octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},{<<1,1,1,0>>,int16}],2,[result_as_list])
+%   ).
+%test_echo5() ->
+%   ?assertMatch(
+%      [[1.0,2.0,3.0],[5.1],[9.0],[256.0],[9223372036854775808.0],[9223372036854775808.0],[-1.0], [-1.0]],
+%      begin
+%         POW63f=math:pow(2,63),
+%         POW63i=round(math:pow(2,63)),
+%         octfun("egen_exe_mirror",[{<<1,2,3>>,uint8},5.1,9,256,POW63f,POW63i,-1.0,-1],8,[result_as_list])
+%      end
+%   ).
+%test_echo6() ->
+%   ?assertMatch(
+%      [[257.0],[257.0,1.0]],
+%      octfun("egen_exe_mirror",[{<<1,1>>,uint16},{<<1,1,1,0>>,int16},5.1],2,[result_as_list])
+%   ).
+%
+%test_pipeline() ->
+%   ?recvMatch(
+%      {gen_exeresult1,[{<<1:1/float-native-unit:64,
+%          2:1/float-native-unit:64,
+%          3:1/float-native-unit:64,
+%          4:1/float-native-unit:64,
+%          5:1/float-native-unit:64>>,double}]},
+%      begin
+%         add_pipeline(signal_data1,
+%                      fun(Data) ->
+%                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8}])
+%                      end,
+%                      gen_exeresult1),
+%         btune:listen(gen_exeresult1),
+%         btune:bcast(signal_data1, {signal_data1,<<1,2,3,4,5>>})
+%      end
+%   ).
+%test_rmpipeline() ->
+%   ?assertMatch(
+%      [],
+%      begin
+%         add_pipeline(rm_signal_data,rm_signal_metadata,
+%                      fun(Data,Metadata) ->
+%                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8}])
+%                      end,
+%                      gen_exeresult),
+%         Pid = whereis(gen_exeserver),
+%         [{Pid,_}] = gproc:lookup_values({p,l,{pipeline,rm_signal_data}}),
+%         [{Pid,_}] = gproc:lookup_values({p,l,rm_signal_data}),
+%         rm_pipeline(rm_signal_data),
+%         P0=gproc:lookup_values({p,l,{pipeline,rm_signal_data}}),
+%         P1=gproc:lookup_values({p,l,{metadata,rm_signal_data}}),
+%         P2=gproc:lookup_values({p,l,{metadatakey,rm_signal_metadata}}),
+%         P3=gproc:lookup_values({p,l,rm_signal_data}),
+%         P4=gproc:lookup_values({p,l,rm_signal_metadata}),
+%         lists:flatten([P0,P1,P2,P3,P4])
+%      end
+%   ).
+%test_pipeline_metadata() ->
+%   ?recvMatch(
+%      {gen_exeresult2,[{<<1:1/float-native-unit:64,
+%          2:1/float-native-unit:64,
+%          3:1/float-native-unit:64,
+%          4:1/float-native-unit:64,
+%          5:1/float-native-unit:64>>,double},
+%       {<<10:1/float-native-unit:64,
+%          20:1/float-native-unit:64,
+%          30:1/float-native-unit:64>>,double}
+%      ]},
+%      begin
+%         add_pipeline(signal_data2,signal_metadata2,
+%                      fun(Data,Metadata) ->
+%                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8},{Metadata,uint8}],2)
+%                      end,
+%                      gen_exeresult2),
+%         btune:listen(gen_exeresult2),
+%         btune:bcast(signal_metadata2, {signal_metadata2,<<10,20,30>>}),
+%         btune:bcast(signal_data2, {signal_data2,<<1,2,3,4,5>>})
+%      end
+%   ).
+%test_metadata_wait() ->
+%   ?recvMatch(
+%      {gen_exeresult3,[{<<1:1/float-native-unit:64,
+%          2:1/float-native-unit:64,
+%          3:1/float-native-unit:64,
+%          4:1/float-native-unit:64,
+%          5:1/float-native-unit:64>>,double},
+%       {<<10:1/float-native-unit:64,
+%          20:1/float-native-unit:64,
+%          30:1/float-native-unit:64>>,double}
+%      ]},
+%      begin
+%         add_pipeline(signal_data3,signal_metadata3,
+%                      fun(Data,Metadata) ->
+%                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8},{Metadata,uint8}],2)
+%                      end,
+%                      gen_exeresult3,[{wait_for_metadata,1000,[{<<1,2,3,4,5>>,uint8},{<<48,49,59>>,uint8}]}]),
+%         btune:listen(gen_exeresult3),
+%         btune:bcast(signal_data3, {signal_data3,<<1,2,3,4,5>>}),
+%         timer:sleep(1), %Give a little chance for spawned process to register and begin listening
+%         btune:bcast(signal_metadata3,{signal_metadata3,<<10,20,30>>})
+%      end
+%   ).
+%test_metadata_timeout() ->
+%   ?recvMatch(
+%      {timeout_gen_exeresult,[[25.0],{<<48,49,59>>,uint8}]},
+%      begin
+%         add_pipeline(timeout_signal_data,timeout_signal_metadata,
+%                      fun(Data,Metadata) ->
+%                         gen_exe:octfun("egen_exe_mirror",[{Data,uint8},{Metadata,uint8}],2)
+%                      end,
+%                      timeout_gen_exeresult,[{wait_for_metadata,100,[[25.0],{<<48,49,59>>,uint8}]}]),
+%         btune:listen(timeout_gen_exeresult),
+%         btune:bcast(timeout_signal_data, {timeout_signal_data,<<1,2,3,4,5>>})
+%      end
+%   ).
+%test_wfall_line() ->
+%   ?assertMatch(
+%      [[255,138,106],[1500.0], [6000.0], [1500.0]],
+%      begin
+%         Sig = << <<X>> || X <- lists:seq(1,10) >>,
+%         octfun("wfall_line",[{Sig,uint8},0,12000,10],4,[result_as_list])
+%      end
+%   ).
+%-endif.
