@@ -1,0 +1,14 @@
+{application, liberl,
+ [
+  {description, "liberl - Erlang utilities library"},
+  {vsn, git},
+  {modules, [
+             le
+            ]},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
