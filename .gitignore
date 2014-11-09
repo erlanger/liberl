@@ -18,3 +18,5 @@ ebin
 lib
 log
 logs
+c_src/le_eixx
+c_src/eixx
