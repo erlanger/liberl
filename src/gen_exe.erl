@@ -36,6 +36,12 @@
                                             {ok, Runparams :: runspec(),State}    |
                                             {stop, Reason :: term() }.
 
+-callback port_data(  Type  :: terms  | binary ,
+                      Info  :: map(),
+                      Data  :: term() | binary(),
+                      State :: term()  ) -> {ok,State}                            |
+                                            {ok, Runparams :: runspec(),State}    |
+                                            {stop, Reason :: term() }.
 
 %% ------------------------------------------------------------------
 %% Type specs and includes
@@ -106,7 +112,7 @@ start_link(Module,ArgsIn,Options) ->
    case proplists:get_value(runspec,Options) of
       undefined ->
          gen_server:start_link(gen_exe,
-                               {Module,ArgsIn,Options},Options);
+                               {Module,ArgsIn,Options},[{debug,[trace]}] ++ Options);
 
       RunSpec ->
          gen_server:start_link(gen_exe,
@@ -124,13 +130,14 @@ init({Module,{ExeSpec,Args},RunSpec,Options}) ->
    process_flag(trap_exit, true), %make sure terminate is called if necessary
    code:ensure_loaded(Module),
    le:setopt(debug,proplists:get_value(debug,Options,false)),
-   State=#{module     =>Module,
-           exespec    =>ExeSpec,
-           runspec    =>RunSpec,
-           port       =>undefined,
-           exit_status=>undefined,
-           opts       =>Options,
-           state      =>undefined
+   State=#{module     =>Module,    %User module
+           exespec    =>ExeSpec,   %Executable description
+           runspec    =>RunSpec,   %Runnning parameters [{key,value}]
+           port       =>undefined, %Erlang port connecting to executable
+           exit_status=>undefined, %Last exit status of executable
+           opts       =>Options,   %Options given by user on start
+           state      =>undefined, %User module state
+           dmode      =>undefined  %Data mode
           },
    UserResp = call(Module,init,Args),
    gproc:add_local_counter({restarts,normal}, 0),
@@ -151,7 +158,7 @@ init({Module,ExeSpec,RunSpec,Options}) ->
 
 init({Module,ExeSpec,Options}) ->
    init({Module,{ExeSpec,[]},[],Options}).
-   
+
 init(start,{stop,Reason},_State) ->
    {stop,Reason};
 
@@ -181,9 +188,16 @@ handle_call(Request, From, State=#{module:=M,state:=UState}) ->
 
 % INFO: Port messages (gen_exe port sends these)
 % ----------------------------------------------
-handle_info({Port, {data, Bin}}, State = #{module:=M,port:=Port,exespec:=ES} ) ->
+handle_info({Port, {data, Bin}}, State = #{module:=M,port:=Port,exespec:=ES, dmode:=Dmode} ) ->
    say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Bin]),
-   {noreply, State};
+   State2=case Dmode of
+      term ->
+         Term=binary_to_term(Bin),
+         call(port_data,Term,State);
+      rawbinary ->
+         call(port_data,Bin,State)
+   end,
+   {noreply, State2};
 
 
 % INFO: Port finished
@@ -207,7 +221,7 @@ handle_info(Msg, State=#{module:=M,state:=UState}) ->
 
 % CAST: Run executable
 % --------------------
-%TODO Opts 
+%TODO Opts
 handle_cast({runit,restart,Counter}, State) ->
    State1=start_port(State),
    gproc:update_counter({c,l,{restarts,Counter}},1),
@@ -303,7 +317,7 @@ start_port(State=#{module:=M,runspec:=RS}) ->
    case  call(port_start,pre_start,State) of
       {stop, Reason} -> {stop, Reason};
 
-      {ok,RunSpec,UState}       -> 
+      {ok,RunSpec,UState}       ->
          % User RunSpec takes priority in the merge with State's RS
          RS2=le:kvmerge(RunSpec,RS),
          start_port1(State#{state:=UState},RS2);
@@ -324,11 +338,11 @@ start_port1(State=#{module:=M,exespec:=ExeSpec,opts:=Opts},NewRS) ->
                {packet,4},
                use_stdio, hide],
    {Spawn,Exe, PortOpts1}=case proplists:get_bool(shell,Opts) of
-      true  -> {spawn, 
-                get_exe(ExeSpec,NewRS), 
+      true  -> {spawn,
+                get_exe(ExeSpec,NewRS),
                 PortOpts};
-      false -> {spawn_executable, 
-                pathname(ExeSpec), 
+      false -> {spawn_executable,
+                pathname(ExeSpec),
                 PortOpts ++ [{args, args2strl(ExeSpec,NewRS) }]}
    end,
    say(1, "   ~s: Starting port ~p", [M,Exe]),
@@ -347,7 +361,7 @@ start_port1(State=#{module:=M,exespec:=ExeSpec,opts:=Opts},NewRS) ->
          error_logger:error_msg("     ~s: Unable to start port ~p~n"
                                 "     Reason: ~p~n",
                                 [M,pathname(ExeSpec),Reason1]),
-         exit(port_not_started)               
+         exit(port_not_started)
    end.
 
 stop_port(State=#{exespec:=ES,port:=Port},Reason) ->
@@ -367,20 +381,11 @@ bad_response(M,F,Resp) ->
 check_fun(M,F,A) ->
    case erlang:function_exported(M,F,A) of
       true -> ok;
-      false -> 
+      false ->
          say(4,"   Warning: Function ~p:~p/~B not exported",[M,F,A]),
          error(not_exported)
-   end.   
-
-call(port_exit,State=#{state:=UState,module:=M}) ->
-   try
-      check_fun(M,port_exit,2),
-      Info=get_info(State),
-      say(7,"   Calling ~p:port_exit(~p,~p)",[M,Info,UState]),
-      M:port_exit(Info,UState)
-   catch error:not_exported ->
-         {ok,undefined}
    end.
+
 
 call(port_start,pre_start,State=#{state:=UState,module:=M}) ->
    try
@@ -408,6 +413,21 @@ call(port_start,post_start,S=#{state:=UState,module:=M,
          S
    end;
 
+call(port_data,Data,S=#{dmode:=Dmode,module:=M,state:=UState,runspec:=RS}) ->
+   try
+      check_fun(M,port_data,4),
+      Info=get_info(S),
+      say(7,"   Calling ~p:port_data(,~p,~p)",[M,Info,UState]),
+      case M:port_data(post_data,Dmode,Data,Info,UState) of
+         {ok,UState1}     -> S#{state:=UState1};
+         {ok,RS1,UState1} -> S#{runspec:=le:kvmerge(RS1,RS),state:=UState1};
+         {stop, Reason}   -> {stop, Reason};
+         Other            -> bad_response(M,port_data,Other)
+      end
+   catch error:not_exported ->
+         S
+   end;
+
 call(M,init,Args) ->
    try
       check_fun(M,init,1),
@@ -417,13 +437,23 @@ call(M,init,Args) ->
         {ok, undefined}
    end.
 
+call(port_exit,State=#{state:=UState,module:=M}) ->
+   try
+      check_fun(M,port_exit,2),
+      Info=get_info(State),
+      say(7,"   Calling ~p:port_exit(~p,~p)",[M,Info,UState]),
+      M:port_exit(Info,UState)
+   catch error:not_exported ->
+         {ok,undefined}
+   end.
+
 get_response(init,UserResp,State) ->
    case UserResp of
-      {ok, UState} -> 
+      {ok, UState} ->
          {ok, State#{state:=UState}};
       {ok, UState, Timeout } ->
          {ok, State#{state:=UState}, Timeout };
-      {stop, Reason} -> 
+      {stop, Reason} ->
          {stop, Reason};
       ignore -> ignore
    end;
@@ -489,7 +519,7 @@ argvalue(Id,Value,ExeSpec,QuoteSpaces) ->
       default -> maps:get(default,argspec(Id,ExeSpec),"");
       Any     -> Any
    end,
-   case QuoteSpaces of 
+   case QuoteSpaces of
       yes -> quote_spaces(Val);
       _   -> Val
    end.
