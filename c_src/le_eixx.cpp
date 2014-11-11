@@ -1,48 +1,64 @@
 #include "le/le_eixx.hpp"
 
+//This program is meant to be used to test the gen_exe server (erlang side)
+//working with the le_eixx library (C++ side)
+
+int add(std::vector<int> values)
+{ int sum=0; for(auto i: values) sum+=i; return sum; }
+
+//Remember NEVER to use std::cout!!!
+//Erlang is using it for communications
+void cast1(const char* Msg)
+{ std::cerr << "Erlang said " << Msg << std::endl; }
+
 int main()
 {
    using namespace eixx;
-   //Simulate receiving binary from erlang
-   eterm t0 = eterm::format("{ ok, 30,\"hello, I am ok\",atom1,40.1,50}");
-   auto t0ext = t0.encode(0);
+   using namespace le;
 
-   std::cerr << "eloop=" << (le::exit_loop() == true) << std::endl;
-   //le::send_term(t0);
-   
-   //Decode binary and store in local variables
-   //and binding
-   auto et = eterm(t0ext.c_str(),t0ext.size());
-   auto pat = eterm::format("{ok, 30, S, atom1, F, I}");
-   auto pat1 = eterm(var(atom("_")));
-   auto d = le::make_dispatcher(
-         pat, [=] (varbind& vb) {return pat.apply(vb);},
-         "{S}", [=] (varbind& vb) {return le::fmt("{ok, S}",vb); },
-         le::anyterm(), [=] (varbind& vb) { std::cerr << "got null!\n"; return le::nullterm(); }
-         );
-   d(t0);
-   d(eterm::format("{hello}"));
-   d("ok");
-   d(5);
-   varbind b;
-   std::cerr << "t=" << et.match(pat,&b) << std::endl;
-   std::cerr << "v1=" << b["S"]->to_string() << b["F"]->to_double();
+   std::vector<int> values;
 
-   auto t1 = et.to_tuple();
-   int value1 = t1[1].to_long(); 
-   std::string value2 = t1[2].to_str().c_str();
-   std::cerr << "comparing atom ok==ok: " << bool(t1[0].to_atom()=="ok")  << std::endl;
-   std::cerr << "value1=" << value1 << std::endl;
-   std::cerr << "value2=" << value2 << std::endl;
-   std::cerr << t0.to_string() << "==" <<  et.to_string() << std::endl;
-
-   //Encode term and send to erlang
-   tuple tup{atom("ok"),value1+20,10,"It worked"};
-   eterm t(tup);
-   std::cerr << "response term = " << t.to_string() << std::endl;
-   std::cerr << "encoded:" << std::endl;
-   //print_buf(t.encode(0)) << std::endl;
+   //You make a dispatcher object first, which tells the le_eixx library
+   //how to handle incoming requests
    //
-   le::enter_loop();
+   //Making a dispatcher is very simple:
+   //1. Think of the term patterns you want to use
+   //2. Provide a function to handle the matches for each pattern
+   //
+   //When le receives messages from erlang, it finds the first
+   //pattern that matches and calls the function you provided.
+   //It takes the term returned by your function and sends it back
+   //to erlang.
+   //
+   //The following example performs the following functions:
+   //1.  adds numbers given in different erlang messages: {add,Num} and getsum
+   //2.  prints an arbitrary String sent from erlang: {print,Msg}
+   //3.  stops the event matching loop when erlang asks with a {stop,Reason} msg
+   //4.  Prints a warning message if an unknown msg is received and does not send
+   //    anything back to erlang.
+   //
+   //
+   auto dp = le::make_dispatcher(
+         "{add, Num}",  //Pattern
+               [&] (varbind& vb) { values.push_back(vb["Num"]->to_long());
+                                  return le::fmt("{ok,~i}",values.size());}, //Function
+         "getsum",
+               [&] (varbind& vb) { int res = add(values);
+                                  return le::fmt("{sum,~i}",res);},
+         "{print, Msg}",
+               [] (varbind& vb) {cast1(vb["Msg"]->to_str().c_str());
+                                  return le::nullterm(); },
+         "{stop, Reason}",
+               [] (varbind& vb) {le::exit_loop();
+                                  std::cerr << "Stopping becasue "
+                                            << vb["Reason"]->to_string() << std::endl;
+                                  return le::nullterm(); }, // returning le:nullterm() allows you to
+                                                            // send nothing back to erlang
+         le::anyterm(),
+               [] (varbind& vb) { std::cerr << "Ignoring strange message";
+                                   return le::nullterm(); }
+         );
+
+   le::enter_loop(dp);
 
 }

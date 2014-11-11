@@ -112,13 +112,24 @@ start_link(Module,ArgsIn,Options) ->
    case proplists:get_value(runspec,Options) of
       undefined ->
          gen_server:start_link(gen_exe,
-                               {Module,ArgsIn,Options},[{debug,[trace]}] ++ Options);
+                               {Module,ArgsIn,Options},Options);
 
       RunSpec ->
          gen_server:start_link(gen_exe,
                                {Module,ArgsIn,RunSpec,Options},Options)
    end.
 
+port_cast(Msg) ->
+   port_cast(self(),Msg).
+
+port_cast(ServerRef,Msg) ->
+   gen_server:cast(ServerRef,{send_msg,Msg}).
+
+get(What) ->
+   get(self(),What).
+
+get(ServerRef,What) ->
+   gen_server:call(ServerRef,{get,What}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -137,7 +148,8 @@ init({Module,{ExeSpec,Args},RunSpec,Options}) ->
            exit_status=>undefined, %Last exit status of executable
            opts       =>Options,   %Options given by user on start
            state      =>undefined, %User module state
-           dmode      =>undefined  %Data mode
+           dmode      =>term       %Default is to use binary_to_term
+                                   %can be rawbinary or term
           },
    UserResp = call(Module,init,Args),
    gproc:add_local_counter({restarts,normal}, 0),
@@ -174,6 +186,11 @@ init(start,UserResp,State) ->
    get_response(init,UserResp1,State1).
 
 
+% CALL: Get
+% ------------------
+handle_call({get,What}, _From, State) ->
+   { reply, maps:get(What,State,undefined), State };
+
 % CALL: Unknown call
 % ------------------
 handle_call(Request, From, State=#{module:=M,state:=UState}) ->
@@ -189,12 +206,13 @@ handle_call(Request, From, State=#{module:=M,state:=UState}) ->
 % INFO: Port messages (gen_exe port sends these)
 % ----------------------------------------------
 handle_info({Port, {data, Bin}}, State = #{module:=M,port:=Port,exespec:=ES, dmode:=Dmode} ) ->
-   say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Bin]),
    State2=case Dmode of
       term ->
          Term=binary_to_term(Bin),
+         say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Term]),
          call(port_data,Term,State);
       rawbinary ->
+         say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Bin]),
          call(port_data,Bin,State)
    end,
    {noreply, State2};
@@ -232,6 +250,16 @@ handle_cast({runit,RunSpec1,Opts}, State=#{runspec:=RunSpec2}) ->
    State1=start_port(State#{runspec:=RS3}),
    {noreply, State1};
 
+% CAST: send message to port
+% --------------------------
+handle_cast({send_msg,Msg}, State=#{port:=Port,dmode:=Dmode}) ->
+   case Dmode of
+      term ->
+         port_command(Port,term_to_binary(Msg));
+      rawbinary ->
+         port_command(Port,Msg)
+   end,
+   {noreply, State};
 
 % CAST: Unknown cast
 % ------------------
@@ -281,7 +309,7 @@ handle_port_exit(State=#{exespec:=ES,runspec:=RS,opts:=Opts,
       0 -> normal;
       _ -> abnormal
    end,
-   say(2,"   ~s: ~p port terminated with status ~p~n", [M,esname(ES),Status]),
+   say(2,"   ~s: ~p port terminated with status ~p~n", [M,esname(ES),status_msg(Status,ES)]),
 
    Restart=call(port_exit,State),
 
@@ -488,9 +516,9 @@ get_response(handle_call,UserResp,State) ->
    end.
 
 % Human message for program exit status code
-get_port_status(Status,ExeSpec) ->
+status_msg(Status,ExeSpec) ->
       Codes=maps:get(exit_codes,ExeSpec,#{}),
-      maps:get(Status,Codes,?FMT("~p - Unknown error",[Status])).
+      maps:get(Status,Codes,?FMT("~p - Unknown exit value ",[status(Status)])).
 
 % ExeSpec,RunSpec and Argument handling
 % -------------------------------------
@@ -620,6 +648,69 @@ send_reply(RetBin,Reqmap) when is_binary(RetBin),
 %3. y procurar, en cuanto pudiearamos, nole ofender
 %4. y rogarle vaya siempe adelante la gloria de su hijo
 %5. y el aumento de la Iglesia Catolica
+
+%% This signal conversion code came from github.com/saleyn/erlexec
+%%-------------------------------------------------------------------------
+%% @doc Decode the program's exit_status.  If the program exited by signal
+%%      the function returns `{signal, Signal, Core}' where the `Signal'
+%%      is the signal number or atom, and `Core' indicates if the core file
+%%      was generated.
+%% @end
+%%-------------------------------------------------------------------------
+-spec status(integer()) ->
+        {status, ExitStatus :: integer()} |
+        {signal, Singnal :: integer() | atom(), Core :: boolean()}.
+status(Status) when is_integer(Status) ->
+    TermSignal = Status band 16#7F,
+    IfSignaled = ((TermSignal + 1) bsr 1) > 0,
+    ExitStatus = (Status band 16#FF00) bsr 8,
+    case IfSignaled of
+    true ->
+        CoreDump = (Status band 16#80) =:= 16#80,
+        {signal, signal(TermSignal), CoreDump};
+    false ->
+        ExitStatus
+    end;
+
+status(undefined) -> undefined.
+
+%%-------------------------------------------------------------------------
+%% @doc Convert a signal number to atom
+%% @end
+%%-------------------------------------------------------------------------
+-spec signal(integer()) -> atom() | integer().
+signal( 1) -> sighup;
+signal( 2) -> sigint;
+signal( 3) -> sigquit;
+signal( 4) -> sigill;
+signal( 5) -> sigtrap;
+signal( 6) -> sigabrt;
+signal( 7) -> sigbus;
+signal( 8) -> sigfpe;
+signal( 9) -> sigkill;
+signal(11) -> sigsegv;
+signal(13) -> sigpipe;
+signal(14) -> sigalrm;
+signal(15) -> sigterm;
+signal(16) -> sigstkflt;
+signal(17) -> sigchld;
+signal(18) -> sigcont;
+signal(19) -> sigstop;
+signal(20) -> sigtstp;
+signal(21) -> sigttin;
+signal(22) -> sigttou;
+signal(23) -> sigurg;
+signal(24) -> sigxcpu;
+signal(25) -> sigxfsz;
+signal(26) -> sigvtalrm;
+signal(27) -> sigprof;
+signal(28) -> sigwinch;
+signal(29) -> sigio;
+signal(30) -> sigpwr;
+signal(31) -> sigsys;
+signal(34) -> sigrtmin;
+signal(64) -> sigrtmax;
+signal(Num) when is_integer(Num) -> Num.
 
 
 %%%---------------------------------------------------------------------

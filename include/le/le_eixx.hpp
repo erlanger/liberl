@@ -11,14 +11,19 @@
 
 namespace LIBERL_NAMESPACE {
    using namespace eixx;
-   enum exit_t {USER,STDOUT_CLOSED};
    namespace impl {
       enum exit_loop_t {QUERY,YES};
       void read(char* buf,std::streamsize len);
-      const eterm dispatch(const eterm& pattern,
-                           const eterm& value,
-                           std::function<const eterm(varbind&)> f);
+      eterm get_pattern(const eterm& pat);
+      eterm get_pattern(const char* s);
    }
+
+   struct eof:public std::ios_base::failure
+   {
+      eof(const std::string& what)
+         :std::ios_base::failure(what)
+      {}
+   };
 
 // API
 inline const eterm& nullterm()
@@ -44,54 +49,46 @@ inline unsigned char hdr_size(unsigned char new_size=255) {
    return header_size;
 }
 
-inline std::function<eterm(const eterm&)> make_dispatcher()
-{ return [=] (const eterm& value) { return nullterm(); }; }
-
-inline std::function<eterm(const eterm&)> make_dispatcher(eterm nullterm(),
-      std::function<const eterm(varbind&)> f)
-{ return make_dispatcher(); }
-
-template<typename ...Args>
- std::function<eterm(const eterm&)> 
- make_dispatcher(eterm pat,
-      std::function<const eterm(varbind&)> f,
-      Args... args);
-
-template<typename ...Args>
- std::function<eterm(const eterm&)> 
- make_dispatcher(const char* s,
-      std::function<const eterm(varbind&)> f,
-      Args... args)
-{
-   eterm pat(eterm::format(s));
-   return make_dispatcher(pat,f,args...);
-}
-
-template<typename ...Args>
- std::function<eterm(const eterm&)> 
- make_dispatcher(eterm pat,
-      std::function<const eterm(varbind&)> f,
-      Args... args)
-{
-   return [=] (const eterm& value) {
-      eterm result = impl::dispatch(pat,value,f);
-      if (!result.empty())
-         return result;
-      else {
-         auto d=make_dispatcher(args...);
-         return d(value);
-      }
-   };
-}
-
 
 inline std::string encode(const eterm& term)
 {
    string s=term.encode(hdr_size(),true);
    std::string sout(s.c_str(),s.size());
-   std::cerr << term.to_string() << "=";
-   std::cerr << to_binary_string(sout.c_str(),s.size()) << std::endl;
    return sout;
+}
+
+inline void send_term(const eterm& term)
+{
+   if (!term.empty()) {
+      std::string s = encode(term);
+      std::cout.write(s.c_str(),s.size());
+   }
+}
+
+
+std::function<eterm(const eterm&)> make_dispatcher()
+{ return [] (const eterm& value) { return nullterm(); }; }
+
+template<typename T,typename ...Args>
+ std::function<eterm(const eterm&)>
+ make_dispatcher(T pat,
+      std::function<const eterm(varbind&)> f,
+      Args...args )
+{
+   return [=] (const eterm& value) {
+      varbind vb;
+      if (value.match(impl::get_pattern(pat),&vb)){
+         eterm result = f(vb);
+         send_term(result);
+         return result;
+      } else {
+         //This should not use many resources
+         //it's depth is only half the
+         //size of the original argument list
+         auto d=make_dispatcher(args...);
+         return d(value);
+      }
+   };
 }
 
 inline std::size_t encode_size(const eterm& term)
@@ -100,25 +97,20 @@ inline std::size_t encode_size(const eterm& term)
 inline unsigned int to_number(const char c)
 { return static_cast<unsigned int>(static_cast<unsigned char>(c)); }
 
-inline void send_term(const eterm& term)
-{
-   if (!term.empty()) {
-      std::string s = encode(term);
-      // std::cout.write(s.c_str(),s.size());
-   }
-}
+template<typename ...Args>
+inline eterm fmt(const char* s,Args...args)
+{ return eterm::format(s,args...); }
 
-inline eterm fmt(const char* s)
-{ return eterm::format(s); }
-
-inline eterm fmt(const char* s,varbind& vb)
-{ return fmt(s).apply(vb); }
+template<typename ...Args>
+inline eterm fmt(varbind& vb,const char* s,Args...args)
+{ return fmt(s,args...).apply(vb); }
 
 // Called by user to signal loop exit
 inline bool exit_loop(const impl::exit_loop_t action=impl::YES) {
-   static bool continue_loop = true;
-   return (action==impl::QUERY) ? continue_loop:(continue_loop=false);
+   static bool exit_loop = false;
+   return (action==impl::QUERY) ? exit_loop:(exit_loop=true);
 }
+
 inline uint64_t get_packet_size() {
    char buf[4];
    const char* bufp=buf;
@@ -136,70 +128,92 @@ inline uint64_t get_packet_size() {
    }
 }
 
-//Enter event loop
-inline const exit_t enter_loop()//const DispatchTable& dt)
+inline void wait_and_dispatch(std::function<eterm(const eterm&) > term_dispatcher)
 {
    static std::vector<char> buf;
 
+   //Read size header and reserve space in buffer
+   uint64_t sz = get_packet_size();
+   if (buf.capacity() < sz)
+      buf.reserve(sz);
+
+   //Read sz bytes of data and decode the term
+   impl::read(buf.data(),sz);
+   eterm in_term(buf.data(),sz);
+
+   //Dispatch the term to the appropriate handlers
+   //defined by the user
+   eterm out_term = term_dispatcher(in_term);
+
+   #ifdef LE_DBG
+   std::cerr << "Received: " << in_term.to_string() << std::endl;
+   std::cerr << "Sent:     " << (!out_term.empty() ? out_term.to_string():"--nothing--") << std::endl;
+   #endif
+}
+
+inline void prepare_streams()
+{
    //Make sure cin/cout throw exceptions on failure
    std::cout.exceptions(std::ios_base::failbit | std::ios_base::badbit);
    std::cin.exceptions(std::ios_base::failbit | std::ios_base::badbit);
-   
-   //Make sure C++ flushes its buffer 
+
+   //Make sure C++ flushes its buffer
    //immediately on insertion
    std::cout.setf(std::ios::unitbuf);
    std::ios::sync_with_stdio(true); //mostly here for documentation
                                     //this is the default
-   
+
    //Make sure stdin/stdout are not
    //buffered (hopefully the OS will honor this)
    setbuf(stdin,0);
    setbuf(stdout,0);
+}
 
+//Enter event loop
+template<typename Fb,typename Fa>
+inline void enter_loop( std::function<eterm(const eterm&)> term_dispatcher,
+                        Fb before,
+                        Fa after)
+   throw(eof)
+{
+   prepare_streams();
    while(!exit_loop(impl::QUERY))
    {
-      //Read size header and reserve space in buffer
-      uint64_t sz = get_packet_size();
-      if (buf.capacity() < sz)
-         buf.reserve(sz);
-      
-      //Read sz bytes of data and decode the term
-      impl::read(buf.data(),sz);
-      eterm eterm(buf.data(),sz);
-      #ifdef LE_DBG
-         std::cerr << "Received: " << eterm.to_string() << std::endl;
-      #endif
+      before();
+      wait_and_dispatch(term_dispatcher);
+      after();
    }
-   return USER;
 }
+
+inline void enter_loop( std::function<eterm(const eterm&)> term_dispatcher)
+{ enter_loop(term_dispatcher,    [] () {},    [] () {} ); }
+
 
    namespace impl {
       using namespace eixx;
       inline void read(char* buf,std::streamsize len)
       {
-         try { 
+         try {
             std::cin.read(buf,len);
          }
          catch (std::ios_base::failure e) {
             std::stringstream s;
-            s<<"Unable to read " << len << " chars from cin.";
-            throw std::ios_base::failure(s.str());
+            if (std::cin.eof()) {
+               //Erlang closed stdin, we need to exit
+               s<<"cin was closed, erlang requires ports to terminate when stdin is closed";
+               throw eof(s.str());
+            } else {
+               s<<"Unable to read " << len << " chars from cin.";
+               throw std::ios_base::failure(s.str());
+            }
          }
       }
 
-      inline const eterm dispatch(const eterm& pattern,
-                                   const eterm& value,
-                                   std::function<const eterm(varbind&)> f)
-      {
-         varbind vb;
-         if (!value.empty() && value.match(pattern,&vb)) {
-            eterm et(f(vb));
-            le::send_term(et);
-            return et;
-         } else {
-            return nullterm();
-         }
-      }
+      inline eterm get_pattern(const eterm& pat)
+      { return pat; };
+
+      inline eterm get_pattern(const char* s)
+      { return eterm::format(s); };
    }
 
 }
