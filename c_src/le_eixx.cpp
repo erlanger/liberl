@@ -48,7 +48,7 @@ int main()
          "{print, Msg}",
                [] (varbind& vb) {cast1(vb["Msg"]->to_str().c_str());
                                   return le::nullterm(); },
-         "{stop, Reason}",
+         "{stop1, Reason}",
                [] (varbind& vb) {le::exit_loop();
                                   std::cerr << "Stopping becasue "
                                             << vb["Reason"]->to_string() << std::endl;

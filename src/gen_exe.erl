@@ -7,6 +7,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(DEF_STOP_TIMEOUT,5000).
+
 %% ------------------------------------------------------------------
 %% User API
 %% ------------------------------------------------------------------
@@ -119,11 +121,27 @@ start_link(Module,ArgsIn,Options) ->
                                {Module,ArgsIn,RunSpec,Options},Options)
    end.
 
+
+port_start() ->
+   port_start([]).
+
+port_start(Runparams) ->
+   port_start(self(),Runparams).
+
+port_start(ServerRef,Runparams) ->
+   gen_server:cast(ServerRef,{runit,Runparams,[]}).
+
 port_cast(Msg) ->
    port_cast(self(),Msg).
 
 port_cast(ServerRef,Msg) ->
    gen_server:cast(ServerRef,{send_msg,Msg}).
+
+port_stop(Reason) ->
+   port_stop(self(),Reason).
+
+port_stop(ServerRef,Reason) ->
+   gen_server:cast(ServerRef,{stopit,Reason,?DEF_STOP_TIMEOUT}).
 
 get(What) ->
    get(self(),What).
@@ -148,8 +166,9 @@ init({Module,{ExeSpec,Args},RunSpec,Options}) ->
            exit_status=>undefined, %Last exit status of executable
            opts       =>Options,   %Options given by user on start
            state      =>undefined, %User module state
-           dmode      =>term       %Default is to use binary_to_term
+           dmode      =>term,      %Default is to use binary_to_term
                                    %can be rawbinary or term
+           closing    =>undefined  %Closing state of port, see stopit message
           },
    UserResp = call(Module,init,Args),
    gproc:add_local_counter({restarts,normal}, 0),
@@ -224,8 +243,8 @@ handle_info({Port, {exit_status, Status}}, State=#{port:=Port}) ->
    {noreply,State#{exit_status:=Status}};
 
 handle_info({'EXIT', Port, Reason}, State=#{port:=Port}) ->
-   State1=handle_port_exit(State),
-   {noreply,State1};
+   State1=handle_port_exit(State,Reason),
+   {noreply,State1#{port:=undefined,closing:=undefined,state:=undefined}};
 
 % INFO: Unknown info msg
 % ----------------------
@@ -250,9 +269,41 @@ handle_cast({runit,RunSpec1,Opts}, State=#{runspec:=RunSpec2}) ->
    State1=start_port(State#{runspec:=RS3}),
    {noreply, State1};
 
+% CAST: Stop executable
+% ---------------------
+
+handle_cast({killit,Port,Reason}, State=#{port:=Port,exespec:=ES,closing:=waiting}) ->
+   say(2,"   Killing port ~p~n"
+       "      Reason: ~p",[esname(ES),Reason]),
+   port_close(Port),
+   {noreply, State#{closing:=killed}};
+
+handle_cast({killit,_Port,_Reason}, State) ->
+   {noreply, State};
+
+handle_cast({stopit,_Reason,_Timeout}, State=#{port:=undefined}) ->
+   {noreply, State};
+
+handle_cast({stopit,Reason,Timeout}, State=#{port:=Port})
+      when is_port(Port) ->
+   %Ask port to close, give it time to finish
+   port_cast({stop,Reason}),
+   try
+      {ok,_}=timer:apply_after(Timeout,gen_server,cast,[self(),{killit,Port,Reason}]),
+      {noreply, State#{closing:=waiting}, Timeout}
+   catch error:badmatch ->
+         %% Couldn't setup timer
+         gen_server:cast(self(),{killit,Port,Reason}),
+         {noreply, State#{closing:=waiting}}
+   end;
+
 % CAST: send message to port
 % --------------------------
-handle_cast({send_msg,Msg}, State=#{port:=Port,dmode:=Dmode}) ->
+%handle_cast({send_msg,Msg}, State=#{port:=undefined,dmode:=Dmode}) ->
+%   %% Drop messages sent to port that has exited or doesn't exist
+%   {noreply, State};
+
+handle_cast({send_msg,Msg}, State=#{port:=Port,dmode:=Dmode}) when is_port(Port) ->
    case Dmode of
       term ->
          port_command(Port,term_to_binary(Msg));
@@ -304,12 +355,14 @@ get_info(#{exespec:=ES,runspec:=RS,
      runparams          => RP}.
 
 handle_port_exit(State=#{exespec:=ES,runspec:=RS,opts:=Opts,
-                         module:=M,exit_status:=Status}) ->
+                         module:=M,exit_status:=Status},Reason) ->
    Counter=case Status of
       0 -> normal;
       _ -> abnormal
    end,
-   say(2,"   ~s: ~p port terminated with status ~p~n", [M,esname(ES),status_msg(Status,ES)]),
+   say(2,"   ~s: ~p port terminated with status ~p~n"
+         "   Reason: ~p~n",
+         [M,esname(ES),status_msg(Status,ES),Reason]),
 
    Restart=call(port_exit,State),
 
@@ -340,7 +393,12 @@ restart_port(State,Counter) when is_atom(Counter)->
    State.
 
 
-start_port(State=#{module:=M,runspec:=RS}) ->
+start_port(State=#{port:=Port,exespec:=ES}) when is_port(Port) ->
+   error_logger:error_msg("     Port ~p is already started.~n",
+                          [pathname(ES)]),
+   State;
+
+start_port(State=#{port:=undefined,module:=M,runspec:=RS}) ->
    %Run executable
    case  call(port_start,pre_start,State) of
       {stop, Reason} -> {stop, Reason};
@@ -392,10 +450,8 @@ start_port1(State=#{module:=M,exespec:=ExeSpec,opts:=Opts},NewRS) ->
          exit(port_not_started)
    end.
 
-stop_port(State=#{exespec:=ES,port:=Port},Reason) ->
-   say(2,"   Stopping port ~p at user request~n"
-         "      Reason: ~p",[esname(ES),Reason]),
-   port_close(Port),
+stop_port(State,Reason) ->
+   gen_server:cast(self(),{killit,Reason}),
    State.
 
 
@@ -621,24 +677,6 @@ get_exe(ExeSpec,RunSpec) when is_map(ExeSpec)  andalso is_list(RunSpec) ->
       L    -> pathname(ExeSpec) ++ " " ++  string:join(L," ")
    end.
 
-
-% Marshalling  and Port communication
-% ===================================
-
-
-send_reply(RetBin,Reqmap) when is_binary(RetBin),
-                               is_map(Reqmap) ->
-   << TagBin:33/bytes, Rest/binary >> = RetBin,
-   Tag = binary_to_term(TagBin),
-   {Pid,Options} = maps:get(Tag,Reqmap),
-   Retval = s,
-   case proplists:get_bool(result_as_list,Options) of
-      true ->
-         gen_server:reply({Pid,Tag},Retval);
-      false->
-         gen_server:reply({Pid,Tag},Retval)
-   end,
-   maps:remove(Tag,Reqmap).
 
 %La ciencia del Amor de Dios y de la Oracion
 %en la Cuarta Morada de Sta. Teresa de Jesus:
