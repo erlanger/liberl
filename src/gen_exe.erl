@@ -8,6 +8,7 @@
 -endif.
 
 -define(DEF_STOP_TIMEOUT,5000).
+-define(LEMSG,'$le_msg').
 
 %% ------------------------------------------------------------------
 %% User API
@@ -129,25 +130,25 @@ port_start(Runparams) ->
    port_start(self(),Runparams).
 
 port_start(ServerRef,Runparams) ->
-   gen_server:cast(ServerRef,{runit,Runparams,[]}).
+   gen_server:call(ServerRef,{?LEMSG,runit,Runparams,[]}).
 
 port_cast(Msg) ->
    port_cast(self(),Msg).
 
 port_cast(ServerRef,Msg) ->
-   gen_server:cast(ServerRef,{send_msg,Msg}).
+   gen_server:cast(ServerRef,{?LEMSG,send_msg,Msg}).
 
 port_stop(Reason) ->
    port_stop(self(),Reason).
 
 port_stop(ServerRef,Reason) ->
-   gen_server:cast(ServerRef,{stopit,Reason,?DEF_STOP_TIMEOUT}).
+   gen_server:cast(ServerRef,{?LEMSG,stopit,Reason,?DEF_STOP_TIMEOUT}).
 
 get(What) ->
    get(self(),What).
 
 get(ServerRef,What) ->
-   gen_server:call(ServerRef,{get,What}).
+   gen_server:call(ServerRef,{?LEMSG,get,What}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -207,8 +208,21 @@ init(start,UserResp,State) ->
 
 % CALL: Get
 % ------------------
-handle_call({get,What}, _From, State) ->
+handle_call({?LEMSG,get,What}, _From, State) ->
    { reply, maps:get(What,State,undefined), State };
+
+% CALL: Run executable
+% --------------------
+% TODO: Opts
+handle_call({?LEMSG,runit,_RunSpec,_Opts}, _From,
+            State=#{port:=Port,exespec:=ES}) when is_port(Port) ->
+   {reply, {error, {already_started,pathname(ES)}}, State};
+
+handle_call({?LEMSG,runit,RunSpec1,Opts}, _From,
+            State=#{port:=undefined,runspec:=RunSpec2}) ->
+   RS3=le:kvmerge(RunSpec1,RunSpec2),
+   State1=start_port(State#{runspec:=RS3}),
+   {reply, ok, State1};
 
 % CALL: Unknown call
 % ------------------
@@ -258,52 +272,55 @@ handle_info(Msg, State=#{module:=M,state:=UState}) ->
 
 % CAST: Run executable
 % --------------------
-%TODO Opts
-handle_cast({runit,restart,Counter}, State) ->
+handle_cast({?LEMSG,runit,restart,Counter}, State) ->
    State1=start_port(State),
    gproc:update_counter({c,l,{restarts,Counter}},1),
    {noreply, State1};
 
-handle_cast({runit,RunSpec1,Opts}, State=#{runspec:=RunSpec2}) ->
-   RS3=le:kvmerge(RunSpec1,RunSpec2),
-   State1=start_port(State#{runspec:=RS3}),
-   {noreply, State1};
 
 % CAST: Stop executable
 % ---------------------
 
-handle_cast({killit,Port,Reason}, State=#{port:=Port,exespec:=ES,closing:=waiting}) ->
+%Kill the port because it exit within the timeout period specified in the stopit message
+handle_cast({?LEMSG,killit,Port,Reason}, State=#{port:=Port,exespec:=ES,closing:=waiting}) ->
    say(2,"   Killing port ~p~n"
        "      Reason: ~p",[esname(ES),Reason]),
    port_close(Port),
    {noreply, State#{closing:=killed}};
 
-handle_cast({killit,_Port,_Reason}, State) ->
+%Ignore other killit messages (e.g. if port has closed)
+handle_cast({?LEMSG,killit,_Port,_Reason}, State) ->
    {noreply, State};
 
-handle_cast({stopit,_Reason,_Timeout}, State=#{port:=undefined}) ->
+%Nothing to stop if port is not running
+handle_cast({?LEMSG,stopit,_Reason,_Timeout}, State=#{port:=undefined}) ->
    {noreply, State};
 
-handle_cast({stopit,Reason,Timeout}, State=#{port:=Port})
+%Stop the port and if it doesn't exit within Timeout, kill it.
+handle_cast({?LEMSG,stopit,Reason,Timeout}, State=#{port:=Port,closing:=undefined})
       when is_port(Port) ->
    %Ask port to close, give it time to finish
    port_cast({stop,Reason}),
    try
-      {ok,_}=timer:apply_after(Timeout,gen_server,cast,[self(),{killit,Port,Reason}]),
+      {ok,_}=timer:apply_after(Timeout,gen_server,cast,[self(),{?LEMSG,killit,Port,Reason}]),
       {noreply, State#{closing:=waiting}, Timeout}
    catch error:badmatch ->
          %% Couldn't setup timer
-         gen_server:cast(self(),{killit,Port,Reason}),
+         gen_server:cast(self(),{?LEMSG,killit,Port,Reason}),
          {noreply, State#{closing:=waiting}}
    end;
 
+%Ignore other stopit messages (e.g. when port is closing)
+handle_cast({?LEMSG,stopit,_Reason,_Timeout}, State) ->
+   {noreply, State};
+
 % CAST: send message to port
 % --------------------------
-%handle_cast({send_msg,Msg}, State=#{port:=undefined,dmode:=Dmode}) ->
-%   %% Drop messages sent to port that has exited or doesn't exist
-%   {noreply, State};
+handle_cast({?LEMSG,send_msg,_Msg}, State=#{port:=undefined}) ->
+   %% Drop messages sent to port that has exited or doesn't exist
+   {noreply, State};
 
-handle_cast({send_msg,Msg}, State=#{port:=Port,dmode:=Dmode}) when is_port(Port) ->
+handle_cast({?LEMSG,send_msg,Msg}, State=#{port:=Port,dmode:=Dmode}) when is_port(Port) ->
    case Dmode of
       term ->
          port_command(Port,term_to_binary(Msg));
@@ -389,7 +406,7 @@ handle_port_exit(State=#{exespec:=ES,runspec:=RS,opts:=Opts,
    State1.
 
 restart_port(State,Counter) when is_atom(Counter)->
-   gen_server:cast(self(),{runit,restart,Counter}),
+   gen_server:cast(self(),{?LEMSG,runit,restart,Counter}),
    State.
 
 
@@ -451,7 +468,7 @@ start_port1(State=#{module:=M,exespec:=ExeSpec,opts:=Opts},NewRS) ->
    end.
 
 stop_port(State,Reason) ->
-   gen_server:cast(self(),{killit,Reason}),
+   gen_server:cast(self(),{?LEMSG,stopit,Reason,?DEF_STOP_TIMEOUT}),
    State.
 
 
