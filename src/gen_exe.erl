@@ -486,29 +486,27 @@ bad_response(M,F,Resp) ->
                           [?MODULE,M,F,Resp]),
    error(bad_response).
 
-check_fun(M,F,A) ->
+check_fun(M,F,A,NotExportedValue) ->
    case erlang:function_exported(M,F,A) of
-      true -> ok;
+      true  -> error(undef); %This was thrown from the user's module originally
       false ->
          say(4,"   Warning: Function ~p:~p/~B not exported",[M,F,A]),
-         error(not_exported)
+         NotExportedValue
    end.
 
 
 call(port_start,pre_start,State=#{state:=UState,module:=M}) ->
    try
-      check_fun(M,port_start,3),
       Info=get_info(State),
       say(7,"   Calling ~p:port_start(pre_start,~p,~p)",[M,Info,UState]),
       M:port_start(pre_start,Info,UState)
-   catch error:not_exported ->
-         {ok, UState}
+   catch error:undef ->
+      check_fun(M,port_start,3,{ok, UState})
    end;
 
 call(port_start,post_start,S=#{state:=UState,module:=M,
                                runspec:=RS}) ->
    try
-      check_fun(M,port_start,3),
       Info=get_info(S),
       say(7,"   Calling ~p:port_start(post_start,~p,~p)",[M,Info,UState]),
       case M:port_start(post_start,Info,UState) of
@@ -517,13 +515,12 @@ call(port_start,post_start,S=#{state:=UState,module:=M,
          {stop, Reason}   -> {stop, Reason};
          Other            -> bad_response(M,port_start,Other)
       end
-   catch error:not_exported ->
-         S
+   catch error:undef ->
+         check_fun(M,port_start,3,S)
    end;
 
 call(port_data,Data,S=#{dmode:=Dmode,module:=M,state:=UState,runspec:=RS}) ->
    try
-      check_fun(M,port_data,4),
       Info=get_info(S),
       say(7,"   Calling ~p:port_data(~p,~p,~p,~p)",[M,Dmode,Data,Info,UState]),
       case M:port_data(Dmode,Data,Info,UState) of
@@ -532,27 +529,25 @@ call(port_data,Data,S=#{dmode:=Dmode,module:=M,state:=UState,runspec:=RS}) ->
          {stop, Reason}   -> {stop, Reason};
          Other            -> bad_response(M,port_data,Other)
       end
-   catch error:not_exported ->
-         S
+   catch error:undef ->
+         check_fun(M,port_data,4,S)
    end;
 
 call(M,init,Args) ->
    try
-      check_fun(M,init,1),
       say(7,"   Calling ~p:init(~p)",[M,Args]),
       M:init(Args)
-   catch error:not_exported ->
-        {ok, undefined}
+   catch error:undef ->
+         check_fun(M,init,1,{ok, undefined})
    end.
 
 call(port_exit,State=#{state:=UState,module:=M}) ->
    try
-      check_fun(M,port_exit,2),
       Info=get_info(State),
       say(7,"   Calling ~p:port_exit(~p,~p)",[M,Info,UState]),
       M:port_exit(Info,UState)
-   catch error:not_exported ->
-         {ok,undefined}
+   catch error:undef ->
+         check_fun(M,port_exit,2,{ok,undefined})
    end.
 
 get_response(init,UserResp,State) ->
