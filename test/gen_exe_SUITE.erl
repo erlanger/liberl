@@ -282,3 +282,25 @@ port_kill(_Config) ->
    ct:pal("port_exit info=~p",[Info]),
    %gproc:unreg({n,l,port_exit_called}),
    {comment,"Port kill timeout working"}.
+
+port_data(_Config) ->
+   ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
+
+   ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[start,{debug,10}]),
+   Count=1000,
+   T1=now(),
+   [ gen_exe:port_cast(Pid,{add,N}) || N<-lists:seq(1,Count) ],
+   gen_exe:port_cast(Pid,getsum),
+   T2=now(),
+   Diff=timer:now_diff(T2,T1)/Count,
+   gen_exe:port_stop(Pid,"Bye"),
+
+   %Make sure port returned sum and that it was
+   % send to tmod:port_data
+   R = sys:get_state(Pid),
+   ct:pal("gen_exe state=~p",[R]),
+
+   ?line true=meck:validate(tmod),
+   Comment = io_lib:format("ok, ~B msgs sent; ~.3f ms/msg",[Count,Diff/Count]),
+   { comment, Comment }.
+
