@@ -89,17 +89,17 @@ init_per_suite(Config) ->
    ok=meck:expect(tmod,init,fun(Arg) ->
             application:ensure_started(gproc),
             gproc:reg({p,l,state}),
-            {ok,tmod:state([{init,[Arg]}])} end),
+            {ok,tmod:state([{init,Arg}])} end),
 
    ok=meck:expect(tmod,port_start, fun(When,Info,State) ->
-            {ok,tmod:state([ {When,[Info]} |State])} end),
+            {ok,tmod:state([ {When,Info} |State])} end),
 
    ok=meck:expect(tmod,port_data, fun(_Type,Data,_Info,State) ->
-            {ok,tmod:state([ {port_data,[Data]} |State])} end),
+            {ok,tmod:state([ {port_data,Data} |State])} end),
 
    ok=meck:expect(tmod,port_exit,fun (Info,State) ->
             try gproc:reg({n,l,port_exit_called},Info) catch _:_ -> ok end, %this is only for the test SUITE!!
-            {ok, tmod:state([ {port_exit,[Info]} |State])} end),
+            {ok, tmod:state([ {port_exit,Info} |State])} end),
 
    ok=meck:expect(tmod,terminate,fun (_Reason) ->
             try gproc:unreg({n,l,port_exit_called}) catch _:_ -> ok end, %this is only for the test SUITE!!
@@ -239,18 +239,26 @@ keep_alive(_Config) ->
    { comment, Comment }.
 
 start_stop(_Config) ->
-        ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
-        ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[{debug,10}]),
-        gen_exe:port_start(Pid,[]),
-        gen_exe:port_stop(Pid,"Bye"),
-        gproc:await({n,l,port_exit_called}),
-        gproc:unreg({n,l,port_exit_called}),
-        timer:sleep(30), %give a chance for state key to be set
-        R = gproc:get_value({p,l,state},Pid),
+   ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
 
-        %Make sure callbacks were executed in order
-        ct:pal("module state=~p",[R]),
-        ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = R,
-        ?line true=meck:validate(tmod),
+   ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[{debug,10}]),
+   gen_exe:port_start(Pid,[]),
+
+   %Second call to port_start should error
+   {error,{already_started,_}} = gen_exe:port_start(Pid,[]),
+
+   gen_exe:port_stop(Pid,"Bye"),
+
+   %Second call to port_stop should be okay
+   ok=gen_exe:port_stop(Pid,"Bye"),
+   gproc:await({n,l,port_exit_called}),
+   gproc:unreg({n,l,port_exit_called}),
+   timer:sleep(30), %give a chance for state key to be set
+   R = gproc:get_value({p,l,state},Pid),
+
+   %Make sure exit status is 0 (le_eixx should have ended normally)
+   ct:pal("module state=~p",[R]),
+   ?line [{port_exit,#{status:=0} },{post_start,_},{pre_start,_},{init,_}] = R,
+   ?line true=meck:validate(tmod),
    {comment,"Port start/stop working."}.
 
