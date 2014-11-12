@@ -94,7 +94,10 @@ init_per_suite(Config) ->
    ok=meck:expect(tmod,port_start, fun(When,Info,State) ->
             {ok,tmod:state([ {When,Info} |State])} end),
 
-   ok=meck:expect(tmod,port_data, fun(_Type,Data,_Info,State) ->
+   ok=meck:expect(tmod,port_data, fun (_Type,{sum,Sum},_Info,_State) ->
+            try gproc:reg({n,l,port_sum_called},Sum) catch _:_ -> ok end; %this is only for the test SUITE!!
+
+                                      (_Type,Data,_Info,State) ->
             {ok,tmod:state([ {port_data,Data} |State])} end),
 
    ok=meck:expect(tmod,port_exit,fun (Info,State) ->
@@ -287,19 +290,23 @@ port_data(_Config) ->
    ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
 
    ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[start,{debug,10}]),
-   Count=1000,
+   Count=300,
    T1=now(),
    [ gen_exe:port_cast(Pid,{add,N}) || N<-lists:seq(1,Count) ],
    gen_exe:port_cast(Pid,getsum),
+
+   %Wait for sum to get in
+   {_Pid,Sum}=gproc:await({n,l,port_sum_called}),
    T2=now(),
+
+   %Make sure we received the sum properly calculated
+   ct:pal("port_sum info=~p",[Sum]),
+   true = Sum==Count*(Count+1)/2,
+
+   gproc:unreg({n,l,port_sum_called}),
+
    Diff=timer:now_diff(T2,T1)/Count,
    gen_exe:port_stop(Pid,"Bye"),
-
-   %Make sure port returned sum and that it was
-   % send to tmod:port_data
-   R = sys:get_state(Pid),
-   ct:pal("gen_exe state=~p",[R]),
-
    ?line true=meck:validate(tmod),
    Comment = io_lib:format("ok, ~B msgs sent; ~.3f ms/msg",[Count,Diff/Count]),
    { comment, Comment }.
