@@ -58,9 +58,11 @@ setopt(Option,Value) ->
    setopt(app(),Option,Value).
 
 setopt(App, Option, Value) when is_atom(App) ->
-   case app() of
+   case App of
       undefined ->
          try
+            %TODO: put this in a better place or simply trust the
+            %user will start the liberl app
             application:ensure_started(gproc),
             gproc:set_value({p,l,{'$le_opt',Option}},Value),
             ok
@@ -80,7 +82,7 @@ opt(Option,Default) ->
    opt(app(),Option,Default).
 
 opt(App,Option,Default) when is_atom(App) ->
-   case app() of
+   case App of
       undefined ->
          try
             application:ensure_started(gproc),
@@ -116,7 +118,8 @@ appdir(App) when is_atom(App) ->
                                               "please set your code path properly,~n"
                                               " including the application direcotry i.e:~n"
                                               " -pa ../~p/ebin and NOT -pa ebin~n",[App,App]),
-                     error(badarg);
+                       error(badarg);
+
                   _ -> filename:dirname(D)
                end
          end
@@ -244,10 +247,12 @@ app() ->
 exec_test_() ->
     {setup,
         fun() ->
-            ok
+            ok=application:start(gproc),
+            ok=application:start(liberl)
         end,
         fun(ok) ->
-            ok
+            application:stop(gproc),
+            application:stop(liberl)
         end,
         [
             ?tt("per process options",test_process_opt()),
@@ -270,16 +275,22 @@ test_process_opt() ->
 
 test_app_opt() ->
    [
-      ?assertMatch(true,
+      ?assertMatch({ok,on},
           begin
-             ok=application:start(liberl),
-             dbg(on),
-             D=application:get_env(liberl,debug),
-             application:stop(liberl),
+             %ok=application:start(liberl),
+             setopt(liberl,myapp_opt,on),
+             D=application:get_env(liberl,myapp_opt),
+             %application:stop(liberl),
              D
           end),
-      ?assertMatch(10,begin dbg(10), opt(debug) end),
-      ?assertMatch(false,begin dbg(off), opt(debug) end)
+       ?assertMatch(off,
+          begin
+             %ok=application:start(liberl),
+             setopt(liberl,myapp_opt1,off),
+             D=opt(liberl,myapp_opt1,default),
+             %application:stop(liberl),
+             D
+          end)
    ].
 
 test_dir() ->
@@ -292,7 +303,12 @@ test_dir() ->
       ?assert(begin D=dir({priv,le}),string:str(D,"liberl/priv")>0 end),
       ?assertMatch("/",begin file:set_cwd("/"),dir(cwd) end),
       ?assertMatch("/",begin file:set_cwd("/"),dir(pwd) end),
-      ?assert(dir([arch])++"\n"==?cmd("gcc -dumpmachine"))
+      ?assert(dir([arch])++"\n"==?cmd("gcc -dumpmachine")),
+      ?assert( begin D=dir({app,liberl}), string:str(D,"liberl")>0 end),
+      ?assert( begin D=dir({app,code}), string:str(D,"kernel")>0 end),
+      ?assertError(badarg, D=dir({app,crazy_app})),
+      ?assertError(badarg, dir(app)), %% This throws an error b/c eunit does not have a default app
+      ?assertError(badarg, dir(priv)) %% This throws an error for the same reason
    ].
 
 test_kvmerge() ->
