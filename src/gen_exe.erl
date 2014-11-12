@@ -483,7 +483,9 @@ stop_port(State,Reason) ->
 bad_response(M,F,Resp) ->
    error_logger:error_msg("     ~s: Bad response from ~p:~p~n"
                           "     ~p~n",
-                          [?MODULE,M,F,Resp]).
+                          [?MODULE,M,F,Resp]),
+   error(bad_response).
+
 check_fun(M,F,A) ->
    case erlang:function_exported(M,F,A) of
       true -> ok;

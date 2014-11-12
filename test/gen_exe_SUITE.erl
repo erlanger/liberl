@@ -94,8 +94,9 @@ init_per_suite(Config) ->
    ok=meck:expect(tmod,port_start, fun(When,Info,State) ->
             {ok,tmod:state([ {When,Info} |State])} end),
 
-   ok=meck:expect(tmod,port_data, fun (_Type,{sum,Sum},_Info,_State) ->
-            try gproc:reg({n,l,port_sum_called},Sum) catch _:_ -> ok end; %this is only for the test SUITE!!
+   ok=meck:expect(tmod,port_data, fun (_Type,{sum,Sum},_Info,State) ->
+            try gproc:reg({n,l,port_sum_called},Sum) catch _:_ -> ok end, %this is only for the test SUITE!!
+            {ok,State};
 
                                       (_Type,Data,_Info,State) ->
             {ok,tmod:state([ {port_data,Data} |State])} end),
@@ -311,3 +312,5 @@ port_data(_Config) ->
    Comment = io_lib:format("ok, ~B msgs sent; ~.3f ms/msg",[Count,Diff/Count]),
    { comment, Comment }.
 
+%%TODO: Tests for module responses, for some reason the test cases don't crash
+%%even if there is a bad_response (but the gen_exe server terminates properly)
