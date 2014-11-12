@@ -86,36 +86,46 @@ init_per_suite(Config) ->
    application:start(liberl),
    ok=meck:new(tmod, [non_strict,no_link]),
 
-   ok=meck:expect(tmod,init,fun(Arg) ->
-            application:ensure_started(gproc),
-            gproc:reg({p,l,state}),
-            {ok,tmod:state([{init,Arg}])} end),
+   ok=meck:expect(tmod,init,
+         fun(TestPid) ->
+               {ok,#{ testpid=>TestPid,
+                      calls=>[{init,TestPid}]
+                    } }
+         end),
 
-   ok=meck:expect(tmod,port_start, fun(When,Info,State) ->
-            {ok,tmod:state([ {When,Info} |State])} end),
+   ok=meck:expect(tmod,port_start,
+         fun(When,Info,State) ->
+               {ok,tmod:state({When,Info},State) }
+         end),
 
-   ok=meck:expect(tmod,port_data, fun (_Type,{sum,Sum},_Info,State) ->
-            try gproc:reg({n,l,port_sum_called},Sum) catch _:_ -> ok end, %this is only for the test SUITE!!
-            {ok,State};
+   ok=meck:expect(tmod,port_data,
+         fun (_Type,{sum,Sum},_Info,State=#{testpid:=TestPid}) ->
+               TestPid ! {sum,Sum,State},
+               {ok,State};
 
-                                      (_Type,Data,_Info,State) ->
-            {ok,tmod:state([ {port_data,Data} |State])} end),
+             (_Type,Data,_Info,State) ->
+               {ok,tmod:state({port_data,Data},State) }
+         end),
 
-   ok=meck:expect(tmod,port_exit,fun (Info,State) ->
-            try gproc:reg({n,l,port_exit_called},Info) catch _:_ -> ok end, %this is only for the test SUITE!!
-            {ok, tmod:state([ {port_exit,Info} |State])} end),
+   ok=meck:expect(tmod,port_exit,
+         fun (Info,State=#{testpid:=TestPid}) ->
+               S1=tmod:state({port_exit,Info},State),
+               TestPid ! {exit,Info,S1},
+               {ok, S1}
+         end),
 
-   ok=meck:expect(tmod,terminate,fun (_Reason) ->
-            ok end),
+   ok=meck:expect(tmod,terminate,
+         fun (_Reason) -> ok end),
 
-   ok=meck:expect(tmod,state,fun (S) ->
-            gproc:set_value({p,l,state},S),
-            S end),
+   ok=meck:expect(tmod,state,
+         fun (NewTerm,S=#{calls:=Calls}) ->
+               S1=S#{calls:=[NewTerm|Calls]},
+               S1
+         end),
 
-   ok=meck:expect(tmod,state,fun() ->
-            gproc:get_value({p,l,state}) end),
    ct:pal("meck tmod started"),
 
+   eprof:start(),
    Config.
 
 %%--------------------------------------------------------------------
@@ -127,6 +137,7 @@ init_per_suite(Config) ->
 %% Description: Cleanup after the suite.
 %%--------------------------------------------------------------------
 end_per_suite(_Config) ->
+   eprof:stop(),
    meck:unload(tmod),
    ok.
 
@@ -144,7 +155,7 @@ end_per_suite(_Config) ->
 %% Description: Initialization before each test case group.
 %%--------------------------------------------------------------------
 init_per_group(_group, Config) ->
-    Config.
+   Config.
 
 %%--------------------------------------------------------------------
 %% Function: end_per_group(GroupName, Config0) ->
@@ -158,7 +169,7 @@ init_per_group(_group, Config) ->
 %% Description: Cleanup after each test case group.
 %%--------------------------------------------------------------------
 end_per_group(_group, Config) ->
-    Config.
+   Config.
 
 %%--------------------------------------------------------------------
 %% Function: init_per_testcase(TestCase, Config0) ->
@@ -177,7 +188,8 @@ end_per_group(_group, Config) ->
 %% variable, but should NOT alter/remove any existing entries.
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
-    Config.
+   eprof:start_profiling([self()]),
+   Config.
 
 %%--------------------------------------------------------------------
 %% Function: end_per_testcase(TestCase, Config0) ->
@@ -193,58 +205,56 @@ init_per_testcase(TestCase, Config) ->
 %% Description: Cleanup after each test case.
 %%--------------------------------------------------------------------
 end_per_testcase(TestCase, Config) ->
-    Config.
+   eprof:stop_profiling(),
+   eprof:analyze(procs),
+   Config.
 
 callorder() ->
-    [{userdata,[{doc,"Testing the gen_exe module"}]}].
+   [{userdata,[{doc,"Testing the gen_exe module"}]}].
 
 
 callorder(_Config) ->
    % Test is done for both shell mode and non shell mode
    [ begin
-        ExeSpec=#{ path=>["/usr/bin/echo"] },
-        ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,Mode ++ [{debug,10}]),
-        gproc:await({n,l,port_exit_called}),
-        gproc:unreg({n,l,port_exit_called}),
-        timer:sleep(30), %give a chance for state key to be set
-        R = gproc:get_value({p,l,state},Pid),
+    ExeSpec=#{ path=>["/usr/bin/echo"] },
+    ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},Mode ++ [{debug,10}]),
+    receive {exit,_Info,ModState} -> ok end,
 
-        %Make sure callbacks were executed in order
-        ct:pal("~p~nmodule state=~p",[Mode,R]),
-        ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = R,
-        ?line true=meck:validate(tmod)
+    %Make sure callbacks were executed in order
+    ct:pal("~p~nmodule state=~p",[Mode,ModState]),
+    ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = maps:get(calls,ModState),
+    ?line true=meck:validate(tmod)
     end
     || Mode <- [[start],[start,shell]] ],
-   {comment,"Good, callbacks running in order."}.
+    {comment,"Good, callbacks running in order."}.
 
 keep_alive(_Config) ->
    Count=50,
    CountMinusOne=Count-1,
    ExeSpec=#{ path=>["/usr/bin/echo"] },
-   ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[start,keep_alive,{debug,10}]),
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,keep_alive,{debug,10}]),
    T1=now(),
    C1=[begin
-       {_Pid,Info}=gproc:await({n,l,port_exit_called}),
-       gproc:unreg({n,l,port_exit_called}),
+       receive {exit,Info,_ModState} -> ok end,
        {C,Info}
-    end || C <- lists:seq(1,Count) ],
-   T2=now(),
-   Diff=timer:now_diff(T2,T1)/1000,
-   %Make sure port exited 50 times and also
-   %that restarts_normal returns the right number
-   {Count, #{restarts_normal:=CountMinusOne} } = lists:last(C1),
+       end || C <- lists:seq(1,Count) ],
+       T2=now(),
+       Diff=timer:now_diff(T2,T1)/1000,
+       %Make sure port exited 50 times and also
+       %that restarts_normal returns the right number
+       {Count, #{restarts_normal:=CountMinusOne} } = lists:last(C1),
 
-   R = sys:get_state(Pid),
+       R = sys:get_state(Pid),
 
-   ct:pal("gen_exe state=~p",[R]),
-   ?line true=meck:validate(tmod),
-   Comment = io_lib:format("ok, ~B processes restarted; ~.3f ms/process",[Count,Diff/Count]),
-   { comment, Comment }.
+       ct:pal("gen_exe state=~p",[R]),
+       ?line true=meck:validate(tmod),
+       Comment = io_lib:format("ok, ~B processes restarted; ~.3f ms/process",[Count,Diff/Count]),
+       { comment, Comment }.
 
 start_stop(_Config) ->
    ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
 
-   ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[{debug,10}]),
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[{debug,10}]),
    gen_exe:port_start(Pid,[]),
 
    %Second call to port_start should error
@@ -254,21 +264,18 @@ start_stop(_Config) ->
 
    %Second call to port_stop should be okay
    ok=gen_exe:port_stop(Pid,"Bye"),
-   gproc:await({n,l,port_exit_called}),
-   gproc:unreg({n,l,port_exit_called}),
-   timer:sleep(30), %give a chance for state key to be set
-   R = gproc:get_value({p,l,state},Pid),
+   receive {exit,_Info,ModState} -> ok end,
 
    %Make sure port exit status is 0 (le_eixx should have ended normally)
-   ct:pal("module state=~p",[R]),
-   ?line [{port_exit,#{status:=0} },{post_start,_},{pre_start,_},{init,_}] = R,
+   ct:pal("module state=~p",[ModState]),
+   ?line [{port_exit,#{status:=0} },{post_start,_},{pre_start,_},{init,_}] = maps:get(calls,ModState),
    ?line true=meck:validate(tmod),
    {comment,"Port start/stop working."}.
 
 port_kill(_Config) ->
    ExeSpec=#{ path=>["cat"] },
 
-   ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[shell,start,{debug,10}]),
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[shell,start,{debug,10}]),
    {os_pid, OsPid}=erlang:port_info(gen_exe:get(Pid,port),os_pid),
    Pscmd=io_lib:format("ps -p ~w -o s=",[OsPid]),
    %Make sure process is running
@@ -282,29 +289,26 @@ port_kill(_Config) ->
    %timeout
    timer:sleep(2200),
    [] = os:cmd(Pscmd),
-   {_Pid,Info}=gproc:await({n,l,port_exit_called}),
+   receive {exit,Info,_ModState} -> ok end,
    ct:pal("port_exit info=~p",[Info]),
-   %gproc:unreg({n,l,port_exit_called}),
    {comment,"Port kill timeout working"}.
 
 port_data(_Config) ->
    ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
 
-   ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[start,{debug,10}]),
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,10}]),
    Count=300,
    T1=now(),
    [ gen_exe:port_cast(Pid,{add,N}) || N<-lists:seq(1,Count) ],
    gen_exe:port_cast(Pid,getsum),
 
    %Wait for sum to get in
-   {_Pid,Sum}=gproc:await({n,l,port_sum_called}),
+   Sum=receive {sum,Sum1,_ModSate} -> Sum1 end,
    T2=now(),
 
    %Make sure we received the sum properly calculated
    ct:pal("port_sum info=~p",[Sum]),
    true = Sum==Count*(Count+1)/2,
-
-   gproc:unreg({n,l,port_sum_called}),
 
    Diff=timer:now_diff(T2,T1)/Count,
    gen_exe:port_stop(Pid,"Bye"),
