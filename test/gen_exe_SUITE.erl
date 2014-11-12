@@ -102,7 +102,6 @@ init_per_suite(Config) ->
             {ok, tmod:state([ {port_exit,Info} |State])} end),
 
    ok=meck:expect(tmod,terminate,fun (_Reason) ->
-            try gproc:unreg({n,l,port_exit_called}) catch _:_ -> ok end, %this is only for the test SUITE!!
             ok end),
 
    ok=meck:expect(tmod,state,fun (S) ->
@@ -256,9 +255,30 @@ start_stop(_Config) ->
    timer:sleep(30), %give a chance for state key to be set
    R = gproc:get_value({p,l,state},Pid),
 
-   %Make sure exit status is 0 (le_eixx should have ended normally)
+   %Make sure port exit status is 0 (le_eixx should have ended normally)
    ct:pal("module state=~p",[R]),
    ?line [{port_exit,#{status:=0} },{post_start,_},{pre_start,_},{init,_}] = R,
    ?line true=meck:validate(tmod),
    {comment,"Port start/stop working."}.
 
+port_kill(_Config) ->
+   ExeSpec=#{ path=>["cat"] },
+
+   ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[shell,start,{debug,10}]),
+   {os_pid, OsPid}=erlang:port_info(gen_exe:get(Pid,port),os_pid),
+   Pscmd=io_lib:format("ps -p ~w -o s=",[OsPid]),
+   %Make sure process is running
+   true = [] =/= os:cmd(Pscmd),
+   gen_exe:port_stop(Pid,"Bye",2000),
+   timer:sleep(200),
+   %Make sure it is still running before
+   % the kill timeout
+   true = [] =/= os:cmd(Pscmd),
+   %Make sure it is not running afer the
+   %timeout
+   timer:sleep(2200),
+   [] = os:cmd(Pscmd),
+   {_Pid,Info}=gproc:await({n,l,port_exit_called}),
+   ct:pal("port_exit info=~p",[Info]),
+   %gproc:unreg({n,l,port_exit_called}),
+   {comment,"Port kill timeout working"}.

@@ -142,7 +142,10 @@ port_stop(Reason) ->
    port_stop(self(),Reason).
 
 port_stop(ServerRef,Reason) ->
-   gen_server:cast(ServerRef,{?LEMSG,stopit,Reason,?DEF_STOP_TIMEOUT}).
+   port_stop(ServerRef,Reason,?DEF_STOP_TIMEOUT).
+
+port_stop(ServerRef,Reason,Timeout) ->
+   gen_server:cast(ServerRef,{?LEMSG,stopit,Reason,Timeout}).
 
 get(What) ->
    get(self(),What).
