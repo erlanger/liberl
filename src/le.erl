@@ -100,17 +100,27 @@ appdir() ->
          appdir(App)
    end.
 
-appdir(Appmod) when is_atom(Appmod) ->
-   %% code:which(..) sometimes returns an atom (e.g. if code coverage is enabled)
-   AppmodDir = case file:read_file_info(code:which(Appmod)) of
-               {ok,_} -> filename:dirname(code:which(Appmod));
-               {error,_} -> {ok,D} = file:get_cwd(),
-                            case string:str(D,".eunit") of
-                               0 -> error(badarg);
-                               _ -> D
-                            end
-               end,
-   filename:dirname(AppmodDir).
+% path needs to be set properly for this to work:
+% i.e. -pa ../myapp/ebin and NOT -pa ebin
+% see http://erlang.org/pipermail/erlang-questions/2011-October/062024.html
+appdir(App) when is_atom(App) ->
+   case code:lib_dir(App) of
+      Dir when is_list(Dir) -> Dir;
+
+      %% code:which(..) sometimes returns an atom (e.g. if code coverage is enabled)
+      {error,_} -> case file:read_file_info(code:which(App)) of
+            {ok,_} -> filename:dirname(code:which(App));
+            {error,_} -> {ok,D} = file:get_cwd(),
+               case string:str(D,".eunit") of
+                  0 -> error_logger:error_msg("Unable to guess directory for application ~p, ~n"
+                                              "please set your code path properly,~n"
+                                              " including the application direcotry i.e:~n"
+                                              " -pa ../~p/ebin and NOT -pa ebin~n",[App,App]),
+                     error(badarg);
+                  _ -> filename:dirname(D)
+               end
+         end
+   end.
 
 %% @doc Joins specified directories, allowing special tags.
 %%

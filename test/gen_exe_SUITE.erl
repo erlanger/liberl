@@ -83,6 +83,7 @@ all() ->
 %% variable, but should NOT alter/remove any existing entries.
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
+   application:start(liberl),
    ok=meck:new(tmod, [non_strict,no_link]),
 
    ok=meck:expect(tmod,init,fun(Arg) ->
@@ -91,8 +92,10 @@ init_per_suite(Config) ->
             {ok,tmod:state([{init,[Arg]}])} end),
 
    ok=meck:expect(tmod,port_start, fun(When,Info,State) ->
-            %try gproc:unreg({n,l,port_exit_called}) catch _:_ -> ok end,
             {ok,tmod:state([ {When,[Info]} |State])} end),
+
+   ok=meck:expect(tmod,port_data, fun(_Type,Data,_Info,State) ->
+            {ok,tmod:state([ {port_data,[Data]} |State])} end),
 
    ok=meck:expect(tmod,port_exit,fun (Info,State) ->
             try gproc:reg({n,l,port_exit_called},Info) catch _:_ -> ok end, %this is only for the test SUITE!!
@@ -195,16 +198,17 @@ callorder() ->
 
 callorder(_Config) ->
    % Test is done for both shell mode and non shell mode
-   [ begin 
+   [ begin
         ExeSpec=#{ path=>["/usr/bin/echo"] },
         ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,Mode ++ [{debug,10}]),
         gproc:await({n,l,port_exit_called}),
         gproc:unreg({n,l,port_exit_called}),
-        R = sys:get_state(Pid),
+        timer:sleep(30), %give a chance for state key to be set
+        R = gproc:get_value({p,l,state},Pid),
 
         %Make sure callbacks were executed in order
-        ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = maps:get(state,R),
-        ct:pal("~p~ngen_exe state=~p",[Mode,R]),
+        ct:pal("~p~nmodule state=~p",[Mode,R]),
+        ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = R,
         ?line true=meck:validate(tmod)
     end
     || Mode <- [[start],[start,shell]] ],
@@ -216,20 +220,37 @@ keep_alive(_Config) ->
    ExeSpec=#{ path=>["/usr/bin/echo"] },
    ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[start,keep_alive,{debug,10}]),
    T1=now(),
-   C1=[begin  
+   C1=[begin
        {_Pid,Info}=gproc:await({n,l,port_exit_called}),
        gproc:unreg({n,l,port_exit_called}),
        {C,Info}
     end || C <- lists:seq(1,Count) ],
    T2=now(),
    Diff=timer:now_diff(T2,T1)/1000,
-   %Make sure port exited 50 times and also 
+   %Make sure port exited 50 times and also
    %that restarts_normal returns the right number
    {Count, #{restarts_normal:=CountMinusOne} } = lists:last(C1),
-   
+
    R = sys:get_state(Pid),
 
    ct:pal("gen_exe state=~p",[R]),
    ?line true=meck:validate(tmod),
    Comment = io_lib:format("ok, ~B processes restarted; ~.3f ms/process",[Count,Diff/Count]),
    { comment, Comment }.
+
+start_stop(_Config) ->
+        ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
+        ?line {ok,Pid}=gen_exe:start_link(tmod,ExeSpec,[{debug,10}]),
+        gen_exe:port_start(Pid,[]),
+        gen_exe:port_stop(Pid,"Bye"),
+        gproc:await({n,l,port_exit_called}),
+        gproc:unreg({n,l,port_exit_called}),
+        timer:sleep(30), %give a chance for state key to be set
+        R = gproc:get_value({p,l,state},Pid),
+
+        %Make sure callbacks were executed in order
+        ct:pal("module state=~p",[R]),
+        ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = R,
+        ?line true=meck:validate(tmod),
+   {comment,"Port start/stop working."}.
+
