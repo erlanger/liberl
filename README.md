@@ -23,7 +23,7 @@ situations, such as when a port doesn't close stdin when it's closed and it
 provides the ability to communicate to the port program more or less like a
 gen_server. It even supports calls to the port so you can do something like
 
-```12.0=gen_exe:port_call(Pid,{multiply,3.0,4.0})```
+`12.0=gen_exe:port_call(Pid,{multiply,3.0,4.0})`
 
 The idea is to have a simple call back module that behaves in a
 very similar way to a gen_server call back module. In addition to the normal
@@ -64,8 +64,8 @@ a header. The patch is already in the latest master branch.
 All you have do (after you have added eixx to your project)
 is to include the le\_eixx.hpp. Here is a simple example of a port
 program in C++11:
-```
 
+```
 #include "le/le_eixx.hpp"
 
 //This program is meant to be used to test the gen_exe server (erlang side)
@@ -137,6 +137,7 @@ int main(int argc, char *argv[])
 
 }
 ```
+
 This makes it very easy. Notice the simple statement: ```le::fmt(vb,"{le_reply,
 ~f, Tag}",a*b);``` `le:fmt` is doing the following:
 * Creating an erlang term (that will be sent back as a reply to
