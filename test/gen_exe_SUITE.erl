@@ -302,7 +302,6 @@ port_kill(_Config) ->
    gen_exe:port_stop(Pid,"Bye",2000),
    %Make sure it is not running afer the
    %timeout
-   timer:sleep(2200),
    [] = os:cmd(Pscmd),
    %Make sure port_exit is called
    {ok,Info}=receive {exit,Info1,_ModState} -> {ok,Info1} end,
@@ -407,5 +406,26 @@ exespec(_Config) ->
    gen_exe:stop(Pid1,normal),
    { comment, "Command line argument handling is working."}.
 
+port_call(_Config) ->
+   ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
+
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,10}]),
+   %Test call return value
+   12.0=gen_exe:port_call(Pid,{multiply,3.0,4.0},5000),
+
+   %Test call timeout
+   {OldTT,_} =ct:get_timetrap_info(),
+   ct:timetrap(5010),
+   ok=try
+      gen_exe:port_call(Pid,{multiply,3.0,4},5000)
+   catch exit:{timeout,_} ->
+         ok;
+      E:R ->
+         E(R)
+   end,
+   ct:timetrap(OldTT),
+
+   gen_exe:stop(Pid,normal),
+   { comment, "port_call working."}.
 
 %%TODO: Tests for module responses,

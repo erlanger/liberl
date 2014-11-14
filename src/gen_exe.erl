@@ -139,6 +139,15 @@ port_cast(Msg) ->
 port_cast(ServerRef,Msg) ->
    gen_server:cast(ServerRef,{?LEMSG,send_msg,Msg}).
 
+port_call(Msg) ->
+   port_call(self(),Msg,5000). %Same timeout as gen_server
+
+port_call(Msg,Timeout) ->
+   port_call(self(),Msg,Timeout).
+
+port_call(ServerRef,Msg,Timeout) ->
+   gen_server:call(ServerRef,{?LEMSG,port_call,Msg},Timeout).
+
 port_stop(Reason) when not is_pid(Reason) ->
    port_stop(self(),Reason).
 
@@ -263,6 +272,27 @@ handle_call({?LEMSG,stopit,Reason,Timeout}, From, State=#{port:=Port,running:=ye
 handle_call({?LEMSG,stopit,_Reason,_Timeout}, _From, State) ->
    {noreply, State};
 
+% CALL: Make call to port
+% --------------------------
+handle_call({?LEMSG,port_call,_Req}, _From, State=#{port:=undefined}) ->
+   %% Drop messages sent to port that has exited or doesn't exist
+   {reply, {error,port_not_started}, State};
+
+handle_call({?LEMSG,port_call, Req}, From,
+            State=#{port:=Port,dmode:=Dmode,exespec:=ES}) when is_port(Port) ->
+   case Dmode of
+      term ->
+         Tag=make_ref(),
+         port_command(Port,term_to_binary({le_call,Req,Tag})),
+         gproc:reg({p,l,{'$le_port_call',Tag}},From);
+
+      rawbinary ->
+         error_logger:error_msg("     port_call is not supported in rawbinary mode: ~p.~n",
+                          [pathname(ES)]),
+         error(badarg)
+   end,
+   {noreply, State};
+
 % CALL: Unknown call - forward to module
 % --------------------------------------
 handle_call(Request, From, State=#{module:=M,state:=UState}) ->
@@ -282,7 +312,19 @@ handle_info({Port, {data, Bin}}, State = #{module:=M,port:=Port,exespec:=ES, dmo
       term ->
          Term=binary_to_term(Bin),
          say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Term]),
-         call(port_data,Term,State);
+         case Term of
+            %This is the reply to a port_call, send reply back to caller
+            {le_reply,Reply,Tag} ->
+               From=gproc:get_value({p,l,{'$le_port_call',Tag}}),
+               gen_server:reply(From,Reply),
+               gproc:unreg({p,l,{'$le_port_call',Tag}}),
+               State;
+
+            %This is simply a msg received from the port, forward to port_data
+            _Other ->
+               call(port_data,Term,State)
+         end;
+
       rawbinary ->
          say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Bin]),
          call(port_data,Bin,State)

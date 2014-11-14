@@ -60,6 +60,10 @@ int main(int argc, char *argv[])
          "{print, Msg}",
                [] (varbind& vb) {cast1(vb["Msg"]->to_str().c_str());
                                   return le::nullterm(); },
+         "{le_call, {multiply,A,B},Tag}",
+               [] (varbind& vb) { double a=vb["A"]->to_double();
+                                  double b=vb["B"]->to_double();
+                                  return le::fmt(vb,"{le_reply, ~f, Tag}",a*b); },
          "{stop, Reason}",
                [] (varbind& vb) {le::exit_loop();
                                   std::cerr << "Stopping becasue "
