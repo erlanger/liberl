@@ -12,15 +12,15 @@ application I wrote. Code to manage application options, set debug flags, etc.
 The second reason is because I have several applications whose job is to
 interact with a small external C++/C executable, and I found myself writing
 boiler-plate code all over again, so I decided to make a generic port server,
-with a few callbacks. This is the gen\_exe gen\_server module.
+with a few callbacks. This is the `gen_exe` module.
 
 ## gen_exe - port management 
-gen_exe provides the code that we write over and over again every time that we
+`gen_exe` provides the code that we write over and over again every time that we
 need to connect to a port program. It also takes cares of tricky situations,
 such as when a port doesn't exit when stdin is closed and of getting the return
-status of the port and notifying the user of its termination.  Gen_exe provides
-the ability to communicate to the port program more or less like a gen_server.
-It even supports calls to the port so you can do something like
+status of the port and notifying the user of its termination.  `gen_exe` provides
+the ability to communicate to the port program more or less like a `gen_server`.
+It even supports calls to the external port so you can do something like
 
 ```erlang
 12.0=gen_exe:port_call({multiply,3.0,4.0})
@@ -31,38 +31,38 @@ gen_exe:port_cast({mymessage,"hello"})
 ```
 
 The idea is to have a simple call back module that behaves in a very similar
-way to a gen_server call back module. In addition to the normal `gen_server`
-`handle_call`, `handle_cast` and `handle_info` events, the module receives the
-following port_specific callbacks:
+way to a `gen_server` call back module. In addition to the normal `gen_server`
+callbacks, the module receives the following port-specific callbacks:
 
 * `port_exit` - when the port program has finished/died for ANY reason
 * `port_data` - when the port program has received data
 * `port_start(pre_start...)` - before the port is started
 * `port_start(post_start...)` - right after the port has started
 
-The callback receives information about the exit status of the port, the number
-of times it has been restarted automatically (if requested by the user), the
-user defined state, etc.
+The callback function receives information about the exit status of the port,
+the number of times it has been restarted automatically (if requested by the
+user), the user defined state, etc.
 
 `gen_exe` also provides functions to simplify port communication and execution:
 * `port_start` - to start the port whenever the user desires
 * `port_stop`  - to stop the port (including timeout based killing if the port
-  does not gently end after receiving a {stop,Reason} message.
+   does not gently end after receiving a {stop,Reason} message.
 * `port_cast`  - to send a message to the port
 * `port_call`  - to make a timeout-protected request to the port (just like
-  gen_server call)
+  `gen_server` call)
 
 `gen_exe` manages port program command-line arguments in parameter-like manner,
 automatically merging required default values, and existing run-time parameters
 to make it very easy to pass changing command-line arguments to the executable.
 
 `gen_exe` is just like a `gen_server` but made for managing ports, in fact it
-is a `gen_server` itself. `gen_exe` forwards any `gen_server` callbacks to the
-user module:  `handle_call`, `handle_info`, `handle_cast`, `code_change`,
-`terminate`, `init`).  In addition is makes port specific callbacks to ease the
-life of programs that manage a port. The fact that `gen_exe` is a `gen_server`
-itself was a design decision to leverage the many years of stability and
-time-tested value of the `gen_server`.
+is a `gen_server` itself. 
+
+`gen_exe` forwards any `gen_server` callbacks to the user module:
+`handle_call`, `handle_info`, `handle_cast`, `code_change`, `terminate`,
+and `init`).  The fact that `gen_exe` is a `gen_server` itself was a design
+decision to leverage the many years of stability and time-tested value of the
+`gen_server`.
 
 ## C++ Port programs - the easy way
 liberl, will also make it much easier to write the port program in C++ if you
