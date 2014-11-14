@@ -104,9 +104,10 @@ int main(int argc, char *argv[])
 This makes it very easy. Notice all the things this program is doing:
 
 1. Pattern matching against three different patterns:
-    ```erlang
+
+```erlang
        le_call,{multiply,A,B},Tag}, {stop, Reason} and le:anyterm()
-    ```
+```
 2. Binding variables `A`,`B`,`Tag` and `Reason` to their respective values
 3. Executing the provided user function if there is a pattern match
 4. Sending the reply of the function back to erlang
