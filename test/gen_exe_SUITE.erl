@@ -417,6 +417,8 @@ port_call(_Config) ->
    {OldTT,_} =ct:get_timetrap_info(),
    ct:timetrap(5010),
    ok=try
+      %This triggers timeout b/c le_eixx expects doubles,
+      %and passing an integer makes it crash
       gen_exe:port_call(Pid,{multiply,3.0,4},5000)
    catch exit:{timeout,_} ->
          ok;
