@@ -1,4 +1,4 @@
-# liberl - Erlang application utilities and gen\_exe for port management
+# liberl - Erlang application utilities and gen_exe for port management
 
 ## Dependencies
 The library depends on gproc(https://github.com/uwiger/gproc), which is
@@ -19,8 +19,8 @@ gen\_server module.
 ## gen_exe - port management 
 gen_exe provides the boiler_plate code that we write over and over again every
 time that we need to connect to a port program. It also takes cares of tricky
-situations, such as when a port doesn't close stdin when is closed and also 
-getting the return status of a program and handling its termination. 
+situations, such as when a port doesn't close stdin when it is closed and also 
+getting the return status of the port and notifying the user of its termination. 
 It provides the ability to communicate to the port program more or less like a
 gen_server. It even supports calls to the port so you can do something like
 
@@ -63,9 +63,9 @@ addition to processing port specific callbacks.
 
 ## C++ Port programs - the easy way
 
-liberl, will make it much easier to write the port program in C++ if
-you use the eixx library from https://github.com/saleyn/eixx. You 
-simply need to include the le\_eixx.hpp header and away you go!
+liberl, will also make it much easier to write the port program in C++ if you
+use the eixx library from https://github.com/saleyn/eixx. You simply need to
+include the le_eixx.hpp header and away you go!
 
 Let's say you want to write a port program that multiplies two numbers
 received from the erlang side and send the reply.
