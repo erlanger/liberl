@@ -60,9 +60,9 @@ to make it very easy to pass changing command-line arguments to the executable.
 is a `gen_server` itself. `gen_exe` forwards any `gen_server` callbacks to the
 user module:  `handle_call`, `handle_info`, `handle_cast`, `code_change`,
 `terminate`, `init`).  In addition is makes port specific callbacks to ease the
-life of programs that manage a port. The fact that gen_exe is a gen_server
+life of programs that manage a port. The fact that `gen_exe` is a `gen_server`
 itself was a design decision to leverage the many years of stability and
-time-tested value of the gen_server.
+time-tested value of the `gen_server`.
 
 ## C++ Port programs - the easy way
 liberl, will also make it much easier to write the port program in C++ if you
@@ -125,8 +125,8 @@ true
 
 gen_exe:port_stop(GenExePid,"Bye").
 ```
-gen_exe takes care of timeouts, making references, sending the reply to the
-caller, etc. It uses gen_server facilities, so it is time-tested.
+`gen_exe` takes care of timeouts, making references, sending the reply to the
+caller, etc. It uses `gen_server` facilities, so it is time-tested.
 
 Notice this simple statement in the C++ code above, in the lambda for matching
 the multiply message: 
@@ -141,20 +141,20 @@ This simple statement doing the following:
 * Puts the result of the multiplication of a*b where it finds `~f` (float
   substitution)
 * Reads the `Tag` from the incoming erlang message, and resends it as part of
-  the built reply (Tag is an opaque object that gen_exe uses to prevent
-mismatching of messages)
+  the built reply (Tag is an opaque object that `gen_exe` uses to prevent
+  mismatching of messages)
 * asking le to encode the reply in a binary packet  and finally
 * send the reply to erlang
 
 All this in one readable line of code! Now that is simplicity for you!!  Thanks
-to the wonderful eixx library and a few utility functions in the le_eixx
+to the wonderful `eixx` library and a few utility functions in the `le_eixx`
 library!
 
 `le:enter_loop()` takes care of reading erlang terms from stdin, pattern
 matching against the provided erlang patterns and dispatching the desired user
 function. The above is a full working port program in a few lines!
 
-Please note that le_eixx is not thread safe (it writes to stdout and reads from
+Please note that `le_eixx` is not thread safe (it writes to stdout and reads from
 stdin!!). It needs to be used within its own thread; however ,I'd rather
 recommend non-threaded port programs and leave all concurrency to erlang if
 possible.
