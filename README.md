@@ -16,15 +16,20 @@ myself writing boiler-plate code all over again, so I decided to make
 a generic port server, with a few callbacks. This is the gen\_exe
 gen\_server module.
 
-## gen_exe the port management on the erlang side
+## gen_exe - port management 
 gen_exe provides the boiler_plate code that we write over and over again every
 time that we need to connect to a port program. It also takes cares of tricky
-situations, such as when a port doesn't close stdin when it's closed and it
-provides the ability to communicate to the port program more or less like a
+situations, such as when a port doesn't close stdin when is closed and also 
+getting the return status of a program and handling its termination. 
+It provides the ability to communicate to the port program more or less like a
 gen_server. It even supports calls to the port so you can do something like
 
 ```erlang
 12.0=gen_exe:port_call(Pid,{multiply,3.0,4.0})
+```
+ or
+```erlang
+gen_exe:port_cast(Pid,{mymessage,"hello"})
 ```
 
 The idea is to have a simple call back module that behaves in a
