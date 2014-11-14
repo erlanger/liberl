@@ -57,67 +57,23 @@ addition to processing port specific callbacks.
 ## C++ Port programs - the easy way
 
 liberl, will make it much easier to write the port program in C++ if
-you use the eixx library from https://github.com/saleyn/eixx. I
-submitted a patch to use it's great marshalling
-and variable binding capabilities (in C++!) easily by simply including
-a header. The patch is already in the latest master branch.
-All you have do (after you have added eixx to your project)
-is to include the le\_eixx.hpp. Here is a simple example of a port
-program in C++11:
+you use the eixx library from https://github.com/saleyn/eixx. You 
+simply need to include the le\_eixx.hpp header and away you go!
+
+Let's say you want to write a port program that multiplies two numbers
+received from the erlang side and send the reply.
+
+Here is how simple it is:
 
 ```C++
 #include "le/le_eixx.hpp"
-
-//This program is meant to be used to test the gen_exe server (erlang side)
-//working with the le_eixx library (C++ side)
-
-int add(std::vector<int> values)
-{ int sum=0; for(auto i: values) sum+=i; return sum; }
-
-//Remember NEVER to use std::cout!!!
-//Erlang is using it for communications
-void cast1(const char* Msg)
-{ std::cerr << "Erlang said " << Msg << std::endl; }
 
 int main(int argc, char *argv[])
 {
    using namespace eixx;
    using namespace le;
 
-   std::vector<int> values;
-
-   //You make a dispatcher object first, which tells the le_eixx library
-   //how to handle incoming requests
-   //
-   //Making a dispatcher is very simple:
-   //1. Think of the term patterns you want to use
-   //2. Provide a function to handle the matches for each pattern
-   //
-   //When le receives messages from erlang, it finds the first
-   //pattern that matches and calls the function you provided.
-   //It takes the term returned by your function and sends it back
-   //to erlang.
-   //
-   //The following example performs the following functions:
-   //1.  adds numbers given in different erlang messages: {add,Num} and getsum
-   //2.  prints an arbitrary String sent from erlang: {print,Msg}
-   //3.  stops the event matching loop when erlang asks with a {stop,Reason} msg
-   //4.  Prints a warning message if an unknown msg is received and does not send
-   //    anything back to erlang.
-   //5.  Responds to a gen_exe:port_call({multiply,X,Y})
-   //
-   //
    auto dp = le::make_dispatcher(
-         "{add, Num}",  //Pattern (& because we want to capture values by reference)
-               [&] (varbind& vb) { values.push_back(vb["Num"]->to_long());
-                                  return le::fmt("{ok,~i}",values.size());}, //Function
-         "getsum",
-               [&] (varbind& vb) { int res = add(values);
-                                  return le::fmt("{sum,~i}",res);},
-
-         "{print, Msg}",
-               [] (varbind& vb) {cast1(vb["Msg"]->to_str().c_str());
-                                  return le::nullterm(); },
          "{le_call, {multiply,A,B},Tag}",
                [] (varbind& vb) { double a=vb["A"]->to_double();
                                   double b=vb["B"]->to_double();
@@ -138,7 +94,28 @@ int main(int argc, char *argv[])
 }
 ```
 
-This makes it very easy. Notice the simple statement: 
+This makes it very easy. Notice all the things this program is doing:
+1. Pattern matching against three different patterns:
+```erlang
+   le_call,{multiply,A,B},Tag}, {stop, Reason} and le:anyterm()
+```
+2. Binding variables `A`,`B`,`Tag` and `Reason` to their respective values
+3. Executing the provided user function if there is a pattern match
+4. Sending the reply of the function back to erlang
+
+On the erlang side you can simply do something like:
+
+```erlang
+Result=gen_exe:port_call(GenExePid,{multiply,3.0,4.0}).
+Result==12.0.
+true
+
+gen_exe:port_stop(GenExePid,"Bye").
+```
+gen_exe takes care of timeouts, making references, sending the reply to the
+caller, etc. It uses gen_server facilities, so it is time-tested.
+
+ Notice the simple statement in the C++ side: 
 
 ```C++
 le::fmt(vb,"{le_reply, ~f, Tag}",a*b);
