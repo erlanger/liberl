@@ -1,4 +1,4 @@
-% vi: ft=erlang sw=3
+
 -module(gen_exe).
 -behaviour(gen_server).
 -compile(export_all).
@@ -101,6 +101,7 @@
 %%      </dl>
 %% @end
 start_link(ServerName,Module,ArgsIn,Options) ->
+   %TODO: Check Options, Exespec, and print good error messages
    case proplists:get_value(runspec,Options) of
       undefined ->
          gen_server:start_link(ServerName,gen_exe,
@@ -138,20 +139,26 @@ port_cast(Msg) ->
 port_cast(ServerRef,Msg) ->
    gen_server:cast(ServerRef,{?LEMSG,send_msg,Msg}).
 
-port_stop(Reason) ->
+port_stop(Reason) when not is_pid(Reason) ->
    port_stop(self(),Reason).
 
 port_stop(ServerRef,Reason) ->
    port_stop(ServerRef,Reason,?DEF_STOP_TIMEOUT).
 
 port_stop(ServerRef,Reason,Timeout) ->
-   gen_server:cast(ServerRef,{?LEMSG,stopit,Reason,Timeout}).
+   gen_server:call(ServerRef,{?LEMSG,stopit,Reason,Timeout},Timeout+1000).
 
-get(What) ->
+get(What) when is_atom(What) ->
    get(self(),What).
 
 get(ServerRef,What) ->
    gen_server:call(ServerRef,{?LEMSG,get,What}).
+
+stop(Reason) when not is_pid(Reason) ->
+   stop(self(),Reason).
+
+stop(ServerRef, Reason) ->
+   gen_server:cast(ServerRef,{?LEMSG,stop,Reason}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -163,16 +170,17 @@ init({Module,{ExeSpec,Args},RunSpec,Options}) ->
    process_flag(trap_exit, true), %make sure terminate is called if necessary
    code:ensure_loaded(Module),
    le:setopt(debug,proplists:get_value(debug,Options,false)),
-   State=#{module     =>Module,    %User module
-           exespec    =>ExeSpec,   %Executable description
-           runspec    =>RunSpec,   %Runnning parameters [{key,value}]
-           port       =>undefined, %Erlang port connecting to executable
-           exit_status=>undefined, %Last exit status of executable
-           opts       =>Options,   %Options given by user on start
-           state      =>undefined, %User module state
-           dmode      =>term,      %Default is to use binary_to_term
-                                   %can be rawbinary or term
-           running    =>undefined  %Closing state of port, see stopit message
+   State=#{module     =>Module,        %User module
+           exespec    =>ExeSpec,       %Executable description
+           runspec    =>RunSpec,       %Runnning parameters [{key,value}]
+           port       =>undefined,     %Erlang port connecting to executable
+           exit_status=>undefined,     %Last exit status of executable
+           opts       =>Options,       %Options given by user on start
+           state      =>undefined,     %User module state
+           dmode      =>term,          %Default is to use binary_to_term
+                                       %can be rawbinary or term
+           running    =>undefined,     %Closing state of port, see stopit message
+           stopped_notify => undefined %Whom to notify after calling port_stop(...)
           },
    UserResp = call(Module,init,Args),
    gproc:add_local_counter({restarts,normal}, 0),
@@ -214,6 +222,7 @@ init(start,UserResp,State) ->
 handle_call({?LEMSG,get,What}, _From, State) ->
    { reply, maps:get(What,State,undefined), State };
 
+
 % CALL: Run executable
 % --------------------
 % TODO: Opts
@@ -227,8 +236,35 @@ handle_call({?LEMSG,runit,RunSpec1,Opts}, _From,
    State1=start_port(State#{runspec:=RS3}),
    {reply, ok, State1};
 
-% CALL: Unknown call
-% ------------------
+% CALL: Stop executable
+% --------------------
+%Nothing to stop if port is not running
+handle_call({?LEMSG,stopit,_Reason,_Timeout}, _From, State=#{port:=undefined}) ->
+   {reply, {error,port_not_started}, State};
+
+handle_call({?LEMSG,stopit,_Reason,_Timeout}, _From, State=#{running:=stopping}) ->
+   {reply, {ok, in_progress}, State};
+
+%Stop the port and if it doesn't exit within Timeout, kill it.
+handle_call({?LEMSG,stopit,Reason,Timeout}, From, State=#{port:=Port,running:=yes})
+      when is_port(Port) ->
+   %Ask port to close, give it time to finish
+   port_cast({stop,Reason}),
+   try
+      {ok,_}=timer:apply_after(Timeout,gen_server,cast,[self(),{?LEMSG,killit,Port,Reason}]),
+      {noreply, State#{running:=stopping,stopped_notify:=From}}
+   catch error:badmatch ->
+         %% Couldn't setup timer, send msg to kill it immediately
+         gen_server:cast(self(),{?LEMSG,killit,Port,Reason}),
+         {noreply, State#{running:=stopping,stopped_notify:=From}}
+   end;
+
+%Ignore other stopit messages (e.g. when port is closing)
+handle_call({?LEMSG,stopit,_Reason,_Timeout}, _From, State) ->
+   {noreply, State};
+
+% CALL: Unknown call - forward to module
+% --------------------------------------
 handle_call(Request, From, State=#{module:=M,state:=UState}) ->
    say(7,"   ~s: Resending call to module ~p",[M,Request]),
    try
@@ -259,19 +295,37 @@ handle_info({Port, {data, Bin}}, State = #{module:=M,port:=Port,exespec:=ES, dmo
 handle_info({Port, {exit_status, Status}}, State=#{port:=Port}) ->
    {noreply,State#{exit_status:=Status}};
 
+%The two equal Port's in the pattern match assure that the right Port is being handled
+handle_info({'EXIT', Port, Reason}, State=#{port:=Port,running:=stopping,stopped_notify:=From}) ->
+   gen_server:reply(From,{ok,Reason}),
+   dsay("Replied to ~p {ok,~p}",[From,Reason]),
+   State1=handle_port_exit(State,Reason),
+   {noreply,State1#{stopped_notify:=undefined}};
+
 handle_info({'EXIT', Port, Reason}, State=#{port:=Port}) ->
    State1=handle_port_exit(State,Reason),
    {noreply,State1};
 
-% INFO: Unknown info msg
-% ----------------------
+% INFO: Unknown info msg - forward to module
+% ------------------------------------------
 handle_info(Msg, State=#{module:=M,state:=UState}) ->
    say(7,"   ~s: Resending msg to module ~p",[M,Msg]),
    try
-      M:handle_info(Msg,UState)
+      UserResp=M:handle_info(Msg,UState),
+      get_response(handle_info,UserResp,State)
    catch error:undef ->
          {noreply, State}
    end.
+
+% CAST: Stop gen_exe
+% --------------------
+handle_cast({?LEMSG,stop,Reason}, State) ->
+   {ok,_}=timer:apply_after(1,gen_exe,port_stop,[Reason]),
+   {ok,_}=timer:apply_after(?DEF_STOP_TIMEOUT + 10,gen_server,cast,[self(),{?LEMSG,terminate,Reason}]),
+   {noreply, State};
+
+handle_cast({?LEMSG,terminate,Reason}, State) ->
+   {stop, Reason, State};
 
 % CAST: Run executable
 % --------------------
@@ -295,28 +349,6 @@ handle_cast({?LEMSG,killit,Port,Reason}, State=#{port:=Port,exespec:=ES,running:
 handle_cast({?LEMSG,killit,_Port,_Reason}, State) ->
    {noreply, State};
 
-%Nothing to stop if port is not running
-handle_cast({?LEMSG,stopit,_Reason,_Timeout}, State=#{port:=undefined}) ->
-   {noreply, State};
-
-%Stop the port and if it doesn't exit within Timeout, kill it.
-handle_cast({?LEMSG,stopit,Reason,Timeout}, State=#{port:=Port,running:=yes})
-      when is_port(Port) ->
-   %Ask port to close, give it time to finish
-   port_cast({stop,Reason}),
-   try
-      {ok,_}=timer:apply_after(Timeout,gen_server,cast,[self(),{?LEMSG,killit,Port,Reason}]),
-      {noreply, State#{running:=stopping}, Timeout}
-   catch error:badmatch ->
-         %% Couldn't setup timer
-         gen_server:cast(self(),{?LEMSG,killit,Port,Reason}),
-         {noreply, State#{running:=stopping}}
-   end;
-
-%Ignore other stopit messages (e.g. when port is closing)
-handle_cast({?LEMSG,stopit,_Reason,_Timeout}, State) ->
-   {noreply, State};
-
 % CAST: send message to port
 % --------------------------
 handle_cast({?LEMSG,send_msg,_Msg}, State=#{port:=undefined}) ->
@@ -332,12 +364,13 @@ handle_cast({?LEMSG,send_msg,Msg}, State=#{port:=Port,dmode:=Dmode}) when is_por
    end,
    {noreply, State};
 
-% CAST: Unknown cast
-% ------------------
+% CAST: Unknown cast - forward to module
+% --------------------------------------
 handle_cast(Msg, State=#{module:=M,state:=UState}) ->
    say(7,"   Resending cast to module ~p: ~p",[M,Msg]),
    try
-      M:handle_cast(Msg,UState)
+      UserResp=M:handle_cast(Msg,UState),
+      get_response(handle_cast,UserResp,State)
    catch error:undef ->
          {noreply, State}
    end.
@@ -609,7 +642,10 @@ argspec(Id,ExeSpec) ->
    end.
 
 argopt(Id,ExeSpec) ->
-   maps:get(argopt,argspec(Id,ExeSpec),"").
+   case maps:get(argopt,argspec(Id,ExeSpec),"") of
+      "" -> "";
+      Opt -> string:concat(Opt," ")
+   end.
 
 argname(Id,ExeSpec) ->
    maps:get(name,argspec(Id,ExeSpec),"Unknown arg").
@@ -627,6 +663,7 @@ argvalue(Id,Value,ExeSpec,QuoteSpaces) ->
       _   -> Val
    end.
 
+%lists of {Key,Value} pairs currently active
 get_runparams(ExeSpec,RunSpec) when is_map(ExeSpec) andalso is_list(RunSpec) ->
    ArgsSpec=maps:get(argspec,ExeSpec,[]),
    lists:foldl(
@@ -656,14 +693,14 @@ args2strl(ExeSpec,RunSpec,QuoteSpaces) when is_map(ExeSpec) andalso is_list(RunS
       fun(#{id:=Id}=AS,Acc) ->
             case lists:keysearch(Id,1,RunSpec) of
                {value,{Id,Value}} -> %It's in Runspec, put it in
-                  lists:append([Acc,[?FMT("~s ~s",
+                  lists:append([Acc,[?FMT("~s~s",
                        [argopt(Id,ExeSpec),
                         argvalue(Id,Value,ExeSpec,QuoteSpaces)])]]);
 
                false      -> %Put it in if it is required by ExeSpec
                   case AS of
                      #{required:=yes} ->
-                        lists:append([Acc,[?FMT("~s ~s",
+                        lists:append([Acc,[?FMT("~s~s",
                              [argopt(Id,ExeSpec),
                               argvalue(Id,default,ExeSpec,QuoteSpaces)])]]);
 

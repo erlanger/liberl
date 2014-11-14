@@ -111,7 +111,7 @@ appdir(App) when is_atom(App) ->
 
       %% code:which(..) sometimes returns an atom (e.g. if code coverage is enabled)
       {error,_} -> case file:read_file_info(code:which(App)) of
-            {ok,_} -> filename:dirname(code:which(App));
+            {ok,_} -> filename:dirname(filename:dirname(code:which(App)));
             {error,_} -> {ok,D} = file:get_cwd(),
                case string:str(D,".eunit") of
                   0 -> error_logger:error_msg("Unable to guess directory for application ~p, ~n"

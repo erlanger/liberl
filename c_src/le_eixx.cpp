@@ -11,7 +11,16 @@ int add(std::vector<int> values)
 void cast1(const char* Msg)
 { std::cerr << "Erlang said " << Msg << std::endl; }
 
-int main()
+const eixx::list cmdline2list(int argc,char *argv[])
+{
+   eixx::list l(argc);
+   for(int i=0;i<argc;i++)
+      l.push_back(argv[i]);
+   l.close();
+   return l;
+}
+
+int main(int argc, char *argv[])
 {
    using namespace eixx;
    using namespace le;
@@ -39,12 +48,15 @@ int main()
    //
    //
    auto dp = le::make_dispatcher(
-         "{add, Num}",  //Pattern
+         "{add, Num}",  //Pattern (& because we want to capture values by reference)
                [&] (varbind& vb) { values.push_back(vb["Num"]->to_long());
                                   return le::fmt("{ok,~i}",values.size());}, //Function
          "getsum",
                [&] (varbind& vb) { int res = add(values);
                                   return le::fmt("{sum,~i}",res);},
+         "getcmdline",
+               [&] (varbind& vb) { return cmdline2list(argc,argv);},
+
          "{print, Msg}",
                [] (varbind& vb) {cast1(vb["Msg"]->to_str().c_str());
                                   return le::nullterm(); },

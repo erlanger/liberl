@@ -99,11 +99,8 @@ init_per_suite(Config) ->
          end),
 
    ok=meck:expect(tmod,port_data,
-         fun (_Type,{sum,Sum},_Info,State=#{testpid:=TestPid}) ->
-               TestPid ! {sum,Sum,State},
-               {ok,State};
-
-             (_Type,Data,_Info,State) ->
+         fun (_Type,Data,_Info,State=#{testpid:=TestPid}) ->
+               TestPid ! {data,Data,State},
                {ok,tmod:state({port_data,Data},State) }
          end),
 
@@ -116,6 +113,23 @@ init_per_suite(Config) ->
 
    ok=meck:expect(tmod,terminate,
          fun (_Reason) -> ok end),
+
+   ok=meck:expect(tmod,handle_cast,
+         fun(Req,State=#{testpid:=TestPid}) ->
+               TestPid ! {cast,Req},
+               {noreply,tmod:state({handle_cast,Req},State) }
+         end),
+
+   ok=meck:expect(tmod,handle_call,
+         fun(Req={add,A,B},_From,State) ->
+               {reply, A+B, tmod:state({handle_call,Req},State) }
+         end),
+
+   ok=meck:expect(tmod,handle_info,
+         fun(Msg,State=#{testpid:=TestPid}) ->
+               TestPid ! {info,Msg},
+               {noreply,tmod:state({handle_info,Msg},State) }
+         end),
 
    ok=meck:expect(tmod,state,
          fun (NewTerm,S=#{calls:=Calls}) ->
@@ -204,7 +218,7 @@ init_per_testcase(TestCase, Config) ->
 %%
 %% Description: Cleanup after each test case.
 %%--------------------------------------------------------------------
-end_per_testcase(TestCase, Config) ->
+end_per_testcase(_TestCase, Config) ->
    eprof:stop_profiling(),
    eprof:analyze(procs),
    Config.
@@ -216,14 +230,15 @@ callorder() ->
 callorder(_Config) ->
    % Test is done for both shell mode and non shell mode
    [ begin
-    ExeSpec=#{ path=>["/usr/bin/echo"] },
-    ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},Mode ++ [{debug,10}]),
-    receive {exit,_Info,ModState} -> ok end,
+       ExeSpec=#{ path=>["/usr/bin/echo"] },
+       ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},Mode ++ [{debug,10}]),
+       ModState=receive {exit,_Info,State} -> State end,
 
-    %Make sure callbacks were executed in order
-    ct:pal("~p~nmodule state=~p",[Mode,ModState]),
-    ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = maps:get(calls,ModState),
-    ?line true=meck:validate(tmod)
+       %Make sure callbacks were executed in order
+       ct:pal("~p~nmodule state=~p",[Mode,ModState]),
+       ?line [{port_exit,_},{post_start,_},{pre_start,_},{init,_}] = maps:get(calls,ModState),
+       gen_exe:stop(Pid,normal),
+       ?line true=meck:validate(tmod)
     end
     || Mode <- [[start],[start,shell]] ],
     {comment,"Good, callbacks running in order."}.
@@ -235,26 +250,29 @@ keep_alive(_Config) ->
    ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,keep_alive,{debug,10}]),
    T1=now(),
    C1=[begin
-       receive {exit,Info,_ModState} -> ok end,
+       Info=receive {exit,Info1,_ModState} -> Info1 end,
        {C,Info}
        end || C <- lists:seq(1,Count) ],
-       T2=now(),
-       Diff=timer:now_diff(T2,T1)/1000,
-       %Make sure port exited 50 times and also
-       %that restarts_normal returns the right number
-       {Count, #{restarts_normal:=CountMinusOne} } = lists:last(C1),
+   T2=now(),
+   Diff=timer:now_diff(T2,T1)/1000,
+   %Make sure port exited 50 times and also
+   %that restarts_normal returns the right number
+   {Count, #{restarts_normal:=CountMinusOne} } = lists:last(C1),
 
-       R = sys:get_state(Pid),
+   R = sys:get_state(Pid),
 
-       ct:pal("gen_exe state=~p",[R]),
-       ?line true=meck:validate(tmod),
-       Comment = io_lib:format("ok, ~B processes restarted; ~.3f ms/process",[Count,Diff/Count]),
-       { comment, Comment }.
+   ct:pal("gen_exe state=~p",[R]),
+   ?line true=meck:validate(tmod),
+   Comment = io_lib:format("ok, ~B processes restarted; ~.3f ms/process",[Count,Diff/Count]),
+   gen_exe:stop(Pid,normal),
+   { comment, Comment }.
 
 start_stop(_Config) ->
    ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
 
    ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[{debug,10}]),
+   %port_stop with no port should return error
+   {error, port_not_started}=gen_exe:port_stop(Pid,"Bye"),
    gen_exe:port_start(Pid,[]),
 
    %Second call to port_start should error
@@ -262,14 +280,15 @@ start_stop(_Config) ->
 
    gen_exe:port_stop(Pid,"Bye"),
 
-   %Second call to port_stop should be okay
-   ok=gen_exe:port_stop(Pid,"Bye"),
-   receive {exit,_Info,ModState} -> ok end,
+   %Second call to port_stop should error
+   {error, port_not_started}=gen_exe:port_stop(Pid,"Bye"),
+   ModState=receive {exit,_Info,State} -> State end,
 
    %Make sure port exit status is 0 (le_eixx should have ended normally)
    ct:pal("module state=~p",[ModState]),
    ?line [{port_exit,#{status:=0} },{post_start,_},{pre_start,_},{init,_}] = maps:get(calls,ModState),
    ?line true=meck:validate(tmod),
+   gen_exe:stop(Pid,normal),
    {comment,"Port start/stop working."}.
 
 port_kill(_Config) ->
@@ -281,16 +300,14 @@ port_kill(_Config) ->
    %Make sure process is running
    true = [] =/= os:cmd(Pscmd),
    gen_exe:port_stop(Pid,"Bye",2000),
-   timer:sleep(200),
-   %Make sure it is still running before
-   % the kill timeout
-   true = [] =/= os:cmd(Pscmd),
    %Make sure it is not running afer the
    %timeout
    timer:sleep(2200),
    [] = os:cmd(Pscmd),
-   receive {exit,Info,_ModState} -> ok end,
+   %Make sure port_exit is called
+   {ok,Info}=receive {exit,Info1,_ModState} -> {ok,Info1} end,
    ct:pal("port_exit info=~p",[Info]),
+   gen_exe:stop(Pid,normal),
    {comment,"Port kill timeout working"}.
 
 port_data(_Config) ->
@@ -303,7 +320,7 @@ port_data(_Config) ->
    gen_exe:port_cast(Pid,getsum),
 
    %Wait for sum to get in
-   Sum=receive {sum,Sum1,_ModSate} -> Sum1 end,
+   Sum=receive {data,{sum,Sum1},_ModSate} -> Sum1 end,
    T2=now(),
 
    %Make sure we received the sum properly calculated
@@ -313,8 +330,82 @@ port_data(_Config) ->
    Diff=timer:now_diff(T2,T1)/Count,
    gen_exe:port_stop(Pid,"Bye"),
    ?line true=meck:validate(tmod),
+
+   gen_exe:stop(Pid,normal),
    Comment = io_lib:format("ok, ~B msgs sent; ~.3f ms/msg",[Count,Diff/Count]),
    { comment, Comment }.
 
-%%TODO: Tests for module responses, for some reason the test cases don't crash
-%%even if there is a bad_response (but the gen_exe server terminates properly)
+cast_forward(_Config) ->
+   ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
+
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,10}]),
+   gen_server:cast(Pid,cast_req_1),
+   cast_req_1=receive {cast,Req} -> Req end,
+
+   gen_exe:stop(Pid,normal),
+   { comment, "handle_cast forwarding to module working."}.
+
+info_forward(_Config) ->
+   ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
+
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,10}]),
+   Pid ! info_msg_1,
+   info_msg_1=receive {info,Msg} -> Msg end,
+
+   gen_exe:stop(Pid,normal),
+   { comment, "handle_info forwarding to module working."}.
+
+call_forward(_Config) ->
+   ExeSpec=#{ path=>[{app,liberl},"c_src/le_eixx"] },
+
+   ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,10}]),
+   7=gen_server:call(Pid,{add,3,4}),
+
+   gen_exe:stop(Pid,normal),
+   { comment, "handle_call forwarding to module working."}.
+
+exespec(_Config) ->
+   ?line ExeSpec=#{name=>"echo",
+             path=>[{app,le},"c_src/le_eixx"],
+             argspec=>[
+                        #{id=>str1, default=>" hello, got spaces ",required=>yes},
+                        #{id=>str2, default=>"hi",                 required=>yes},
+                        #{id=>opt1, argopt=>"-o", default=>"5",      required=>yes},
+                        #{id=>opt2, argopt=>"-p",                  required=>no}
+                      ]},
+
+   {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,19}]),
+   gen_exe:port_cast(Pid,getcmdline),
+
+   %Test Exespec at start_link
+   CmdL=receive {data,L,_} -> L end,
+   [_ExecName," hello, got spaces ","hi", "-o 5"] = CmdL,
+   gen_exe:port_stop(Pid,"Bye"),
+
+   %Test Runparams merging with Exespec at start_link
+   RunSpec=[{str1,"another string"}],
+   {ok,Pid1}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,19},{runspec,RunSpec}]),
+   gen_exe:port_cast(Pid1,getcmdline),
+   CmdL1=receive {data,L1,_} -> L1 end,
+   [_ExecName,"another string","hi", "-o 5"] = CmdL1,
+   gen_exe:port_stop(Pid1,"Bye"),
+
+   %Test port stop/start keeps runparams
+   gen_exe:port_start(Pid1,[]),
+   gen_exe:port_cast(Pid1,getcmdline),
+   CmdL2=receive {data,L2,_} -> L2 end,
+   [_ExecName,"another string","hi","-o 5"] = CmdL2,
+   gen_exe:port_stop(Pid1,"Bye"),
+
+   %Test port_start runspec merging
+   gen_exe:port_start(Pid1,[{str1,"I am very happy"},{opt2,"pflag"}]),
+   gen_exe:port_cast(Pid1,getcmdline),
+   CmdL3=receive {data,L3,_} -> L3 end,
+   [_ExecName,"I am very happy","hi","-o 5","-p pflag"] = CmdL3,
+   gen_exe:port_stop(Pid1,"Bye"),
+
+   gen_exe:stop(Pid1,normal),
+   { comment, "Command line argument handling is working."}.
+
+
+%%TODO: Tests for module responses,
