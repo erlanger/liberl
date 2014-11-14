@@ -139,7 +139,7 @@ the multiply message:
 return le::fmt(vb,"{le_reply, ~f, Tag}",a*b);
 ``` 
 
-This simple statement doing the following:
+This simple statement is doing the following:
 * Creating an erlang tuple (that will be sent back as a reply to
   gen_exe:port_call({multiply,X,Y}))
 * Puts the result of the multiplication of a*b where it finds `~f` (float
