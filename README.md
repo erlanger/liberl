@@ -165,4 +165,5 @@ possible.
 
 ## Status
 This is an early version, but the test cases are rather thorough. Documentation
-is not written yet. Browse through the test cases in gen_exe_SUITE.erl for now.
+is not written yet. Browse through the test cases in `gen_exe_SUITE.erl` if you
+want more info.
