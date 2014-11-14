@@ -23,7 +23,9 @@ situations, such as when a port doesn't close stdin when it's closed and it
 provides the ability to communicate to the port program more or less like a
 gen_server. It even supports calls to the port so you can do something like
 
-`12.0=gen_exe:port_call(Pid,{multiply,3.0,4.0})`
+```erlang
+12.0=gen_exe:port_call(Pid,{multiply,3.0,4.0})
+```
 
 The idea is to have a simple call back module that behaves in a
 very similar way to a gen_server call back module. In addition to the normal
