@@ -5,6 +5,10 @@ The library depends on gproc(https://github.com/uwiger/gproc), which is
 most useful for almost any erlang application. Also you may want to
 include eixx (https://github.com/saleyn/eixx) (see below).
 
+**liberl** uses newer features of the erlang language (e.g. maps) 
+so Erlang/OTP 17 or later is required (it may work with 15B but 
+I haven't tested).
+
 ## Purpose
 I wrote this library because I found myself writing boiler-plate code for every
 application I wrote. Code to manage application options, set debug flags, etc.
@@ -65,9 +69,9 @@ decision to leverage the many years of stability and time-tested value of the
 `gen_server`.
 
 ## C++ Port programs - the easy way
-liberl, will also make it much easier to write the port program in C++ if you
+**liberl**, will also make it much easier to write the port program in C++ if you
 use the eixx library from https://github.com/saleyn/eixx. You simply need to
-include the liberl C++ header:  `le_eixx.hpp`  and away you go!
+include the **liberl** C++ header:  `le_eixx.hpp`  and away you go!
 
 Let's say you want to write a port program in C++ that multiplies two numbers
 received from the erlang side and send the reply back to erlang.
