@@ -65,7 +65,7 @@ All you have do (after you have added eixx to your project)
 is to include the le\_eixx.hpp. Here is a simple example of a port
 program in C++11:
 
-```
+```C++
 #include "le/le_eixx.hpp"
 
 //This program is meant to be used to test the gen_exe server (erlang side)
@@ -138,11 +138,16 @@ int main(int argc, char *argv[])
 }
 ```
 
-This makes it very easy. Notice the simple statement: ```le::fmt(vb,"{le_reply,
-~f, Tag}",a*b);``` `le:fmt` is doing the following:
+This makes it very easy. Notice the simple statement: 
+
+```C++
+le::fmt(vb,"{le_reply, ~f, Tag}",a*b);
+``` 
+
+`le:fmt` is doing the following:
 * Creating an erlang term (that will be sent back as a reply to
   gen_exe:port_call({multiply,X,Y}))
-* Puts the result of the multiplication where it finds `~f`
+* Puts the result of the multiplication of a*b where it finds `~f`
 * Reads the `Tag` from the incoming erlang message, and resends it as part of
   the built reply
 
