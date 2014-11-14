@@ -3,7 +3,7 @@
 ## Dependencies
 The library depends on gproc(https://github.com/uwiger/gproc), which is
 most useful for almost any erlang application. Also you may want to
-include eixx (https://github.com/saleyin/eixx) (see below).
+include eixx (https://github.com/saleyn/eixx) (see below).
 
 ## Purpose
 I wrote this library because I found myself writing boiler-plate code
