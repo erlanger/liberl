@@ -1,0 +1,16 @@
+CXX=case os:getenv("CXX") of
+   Value -> Value;
+   fasle -> "g++"
+end,
+% Replace configuration options read from rebar.config with those dynamically set below
+lists:keymerge(1,
+    lists:keysort(1, [
+       {port_env,  [
+                     {"CXX", "g++" }, %if CXX is undefined use g++
+                     {"CC",  "$CXX" },
+                     {"CXXFLAGS", "$CXXFLAGS -std=c++11 -O3 -I include/ -I c_src/eixx/include"}
+       ]},
+       {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]}
+    ]),
+    lists:keysort(1, CONFIG)).
+
