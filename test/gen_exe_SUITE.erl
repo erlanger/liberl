@@ -230,7 +230,7 @@ callorder() ->
 callorder(_Config) ->
    % Test is done for both shell mode and non shell mode
    [ begin
-       ExeSpec=#{ path=>["/usr/bin/echo"] },
+       ExeSpec=#{ path=>["/bin/echo"] },
        ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},Mode ++ [{debug,10}]),
        ModState=receive {exit,_Info,State} -> State end,
 
@@ -246,7 +246,7 @@ callorder(_Config) ->
 keep_alive(_Config) ->
    Count=50,
    CountMinusOne=Count-1,
-   ExeSpec=#{ path=>["/usr/bin/echo"] },
+   ExeSpec=#{ path=>["/bin/echo"] },
    ?line {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,keep_alive,{debug,10}]),
    T1=now(),
    C1=[begin
