@@ -1,6 +1,6 @@
 CXX=case os:getenv("CXX") of
-   Value -> Value;
-   fasle -> "g++"
+   false -> "g++";
+   Value -> Value
 end,
 % Replace configuration options read from rebar.config with those dynamically set below
 lists:keymerge(1,
