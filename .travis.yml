@@ -1,7 +1,10 @@
+before_install:
+   - sudo apt-get update -qq
+   - sudo apt-get install -qq gcc
 language: erlang
 otp_release:
+  - 17.1
   - 17.0
   - R16B02
-  - R16B01
   - R15B
 script: "rebar co && rebar eunit && rebar ct"
