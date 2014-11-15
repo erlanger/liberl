@@ -532,7 +532,7 @@ start_port1(State=#{module:=M,exespec:=ExeSpec,opts:=Opts},NewRS) ->
    say(2, "          port options: ~p", [PortOpts1]),
    try
       Port=erlang:open_port({Spawn, Exe}, PortOpts1),
-      State1=State#{port:=Port,exit_status:=undefined},
+      State1=State#{port:=Port,runspec:=NewRS,exit_status:=undefined},
       % post_start call merges the user RunSpec with the state RunSpec
       % and updates the user UState
       State2=case call(port_start,post_start,State1) of

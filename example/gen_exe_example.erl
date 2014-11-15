@@ -1,12 +1,20 @@
 -module(gen_exe_example).
 -behaviour(gen_exe).
 
--export([init/1,port_start/3,port_exit/2,port_data/4]).
+-export([run/0,terminate/1,init/1,port_start/3,port_exit/2,port_data/4]).
 
 -include_lib("liberl/include/utils.hrl").
 
-init(Arg) ->
-   {ok,#{mykey=>myvalue}}.
+run() ->
+   gen_exe:start_link(?MODULE,#{ path => "echo 1>&2",
+                                 argspec => [
+                                             #{id=>count}, %First command-line argument
+                                             #{id=>type}   %Second command-line argument
+                                            ]
+                               },[start,shell] ).
+
+init([]) ->
+   {ok,#{number=>1, fruit=>"apples"}}.
 
 %  Info is a map with the following information:
 %  #{status             =>    The integer exit value of the application or
@@ -52,9 +60,12 @@ init(Arg) ->
 % {stop, Reason  }            * port is not started
 %
 %
-port_start(pre_start,Info,State) ->
-   say("Right before my port starts: ~p",[Info]),
-   {ok,State}.
+port_start(pre_start,Info,State=#{number:=Number,fruit:=Fruit}) ->
+   Params = [
+              { count, integer_to_list(Number) },
+              { type , Fruit                   }
+            ],
+   {ok,Params, State};
 
 
 % port_start(post_start,...) can return the following tuples:
@@ -72,9 +83,9 @@ port_start(pre_start,Info,State) ->
 % {stop, Reason  }            * port is stopped
 %
 %
-port_start(post_start,Info,State) ->
-   say("Right after my port starts: ~p",[Info]),
-   {ok,State}.
+port_start(post_start,Info,State=#{number:=Number}) ->
+   Count=integer_to_list(Number+1),
+   {ok, [ {count,Count} ],  State#{number:=Number+1} }.
 
 % port_exit(...) can return the following tuples:
 % {ok,State}                  * gen_exe keeps the state for the next callback
@@ -91,9 +102,15 @@ port_start(post_start,Info,State) ->
 %                             * port is restarted with the current runparams
 %
 %
-port_exit(Info,State) ->
-   say("Right after my port starts: ~p",[Info]),
-   {ok, State}.
+port_exit(Info,State=#{number:=N}) when N >= 4 ->
+   io:format("My port finished, too many fruits!!: ~p~n~n~n",[Info]),
+   {ok,State};
+
+port_exit(Info,State=#{fruit:="apples"}) ->
+   {restart,[{type,"oranges"}],State#{fruit:="oranges"}};
+
+port_exit(Info,State=#{fruit:="oranges"}) ->
+   {restart,[{type,"apples"}],State#{fruit:="apples"}}.
 
 % port_data(post_start,...) can return the following tuples:
 % {ok,State}                  * gen_exe keeps the state for the next callback
@@ -108,8 +125,9 @@ port_exit(Info,State) ->
 %                               current runparams.
 %
 % {stop, Reason  }            * port is stopped
-port_data(Type,Data,Info,State) ->
+port_data(_Type,_Data,_Info,State) ->
+   %This port doesn't send data
    {ok, State}.
 
-terminate(Reason) ->
+terminate(_Reason) ->
    ok.
