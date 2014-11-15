@@ -142,7 +142,7 @@ return le::fmt(vb,"{le_reply, ~f, Tag}",a*b);
 This simple statement is doing the following:
 * Creating an erlang tuple (that will be sent back as a reply to
   gen_exe:port_call({multiply,X,Y}))
-* Puts the result of the multiplication of a*b where it finds `~f` (float
+* Puts the result of the multiplication of a\*b where it finds `~f` (float
   substitution)
 * Reads the `Tag` from the incoming erlang message, and resends it as part of
   the built reply (Tag is an opaque object that `gen_exe` uses to prevent
@@ -165,5 +165,5 @@ possible.
 
 ## Status
 This is an early version, but the test cases are rather thorough. Documentation
-is not written yet. Browse through the test cases in `gen_exe_SUITE.erl` if you
-want more info.
+is not written yet. Browse through the example gen_exe in examples/ and also
+look at the test cases in `gen_exe_SUITE.erl` for more information.
