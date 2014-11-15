@@ -1,6 +1,7 @@
 language: erlang
 otp_release:
-  - R17
+  - 17.0
   - R16B02
   - R16B01
   - R15B
+script: "rebar co && rebar eunit && rebar ct"
