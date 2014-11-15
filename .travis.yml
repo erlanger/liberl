@@ -1,16 +1,18 @@
 compiler:
    - gcc
 before_install:
+   - export BOOST="modular-boost"
+   - export CXXFLAGS="-I $BOOST"
    - export CXX="g++-4.9"
    - export CC="g++-4.9"
    - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
    - sudo apt-get update -qq
    - sudo apt-get install -qq $CXX libboost-all-dev
    - git clone --recursive --depth=2 https://github.com/boostorg/boost.git modular-boost >clone.log
-   - cd modular-boost
+   - cd "$BOOST"
    - ./bootstrap.sh
    - ./b2 headers
-   - cd ..
+   - cd - 
 language: erlang
 otp_release:
   - 17.1
