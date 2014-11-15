@@ -303,7 +303,7 @@ test_dir() ->
       ?assert(begin D=dir({priv,le}),string:str(D,"liberl/priv")>0 end),
       ?assertMatch("/",begin file:set_cwd("/"),dir(cwd) end),
       ?assertMatch("/",begin file:set_cwd("/"),dir(pwd) end),
-      ?assert(?debugVal(dir([arch])++"\n")==?debugVal(?cmd("gcc -dumpmachine"))),
+      ?assert(?debugVal(dir([arch]))==?debugVal(erlang:system_info(system_architecture))),
       ?assert( begin D=dir({app,liberl}), string:str(D,"liberl")>0 end),
       ?assert( begin D=dir({app,code}), string:str(D,"kernel")>0 end),
       ?assertError(badarg, D=dir({app,crazy_app})),
