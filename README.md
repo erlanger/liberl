@@ -1,4 +1,5 @@
 # liberl - Erlang port management and application utilities
+[![Build Status](https://travis-ci.org/erlanger/liberl.png)](https://travis-ci.org/erlanger/liberl)
 
 ## Dependencies
 The library depends on gproc(https://github.com/uwiger/gproc), which is
