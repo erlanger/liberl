@@ -1,3 +1,5 @@
+compiler:
+   - gcc
 before_install:
    - export CXX="g++-4.9"
    - export CC="g++-4.9"
