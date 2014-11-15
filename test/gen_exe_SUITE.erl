@@ -365,7 +365,7 @@ call_forward(_Config) ->
 
 exespec(_Config) ->
    ?line ExeSpec=#{name=>"echo",
-             path=>[{app,le},"c_src/le_eixx"],
+             path=>[{app,liberl},"c_src/le_eixx"],
              argspec=>[
                         #{id=>str1, default=>" hello, got spaces ",required=>yes},
                         #{id=>str2, default=>"hi",                 required=>yes},
