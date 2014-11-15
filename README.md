@@ -6,8 +6,7 @@ most useful for almost any erlang application. Also you may want to
 include eixx (https://github.com/saleyn/eixx) (see below).
 
 **liberl** uses newer features of the erlang language (e.g. maps) 
-so Erlang/OTP 17 or later is required (it may work with 15B but 
-I haven't tested).
+so Erlang/OTP 17 or later is required.
 
 ## Purpose
 I wrote this library because I found myself writing boiler-plate code for every
