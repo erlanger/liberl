@@ -696,10 +696,10 @@ argvalue(Id,Value,ExeSpec) ->
    argvalue(Id,Value,ExeSpec,no).
 
 argvalue(Id,Value,ExeSpec,QuoteSpaces) ->
-   Val=case Value of
+   Val=to_str(case Value of
       default -> maps:get(default,argspec(Id,ExeSpec),"");
       Any     -> Any
-   end,
+   end),
    case QuoteSpaces of
       yes -> quote_spaces(Val);
       _   -> Val
@@ -775,6 +775,17 @@ get_exe(ExeSpec,RunSpec) when is_map(ExeSpec)  andalso is_list(RunSpec) ->
       L    -> pathname(ExeSpec) ++ " " ++  string:join(L," ")
    end.
 
+to_str(Value) when is_integer(Value) ->
+   integer_to_list(Value);
+
+to_str(Value) when is_float(Value) ->
+   float_to_list(Value,[{decimals,20},compact]);
+
+to_str(Value) when is_atom(Value) ->
+   atom_to_list(Value);
+
+to_str(Value) when is_list(Value) ->
+   Value. %we'll let it error if it is not a string
 
 %La ciencia del Amor de Dios y de la Oracion
 %en la Cuarta Morada de Sta. Teresa de Jesus:
