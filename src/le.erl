@@ -231,18 +231,6 @@ app() ->
 
 -ifdef(EUNIT).
 -define(tt(T,F), {T,timeout, 2, ?_test(F)}).
--define(recvMatch(Value,Expr),
-        ?assertMatch(Value when Value =/=timeout,
-                     begin
-                        Expr,
-                        receive
-                           V -> V
-                        after
-                           4000 -> timeout
-                        end
-                     end)
-       ).
-
 
 exec_test_() ->
     {setup,
