@@ -264,6 +264,7 @@ keep_alive(_Config) ->
    ct:pal("gen_exe state=~p",[R]),
    ?line true=meck:validate(tmod),
    Comment = io_lib:format("ok, ~B processes restarted; ~.3f ms/process",[Count,Diff/Count]),
+   ct:pal(99,Comment),
    gen_exe:stop(Pid,normal),
    { comment, Comment }.
 
