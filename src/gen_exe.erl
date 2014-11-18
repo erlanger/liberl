@@ -1,7 +1,7 @@
 
 -module(gen_exe).
 -behaviour(gen_server).
--compile(export_all).
+%-compile(export_all).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -14,7 +14,12 @@
 %% User API
 %% ------------------------------------------------------------------
 -export([start_link/3,start_link/4]).
--export([]).
+-export([port_start/0,port_start/1,port_start/2,
+         port_call/1,port_call/2,port_call/3,
+         port_cast/1,port_cast/2,
+         port_stop/1,port_stop/2,port_stop/3,
+         get/1,get/2,
+         stop/1,stop/2]).
 
 
 %% ------------------------------------------------------------------
@@ -55,18 +60,19 @@
 -type argname()      :: string().
 -type argopt()       :: string().
 -type argvalue()     :: iolist() | default.
--type argdesc()      :: string().
 
 -type arg_spec() :: #{argid()  => #{ id       => atom(),    %Id is required if argspec present
                                      argopt   => argopt(),  %all are optional
                                      name     => argname(), %default is "Unknown arg"
                                      default  => argvalue(),%default is ""
                                      required => yes|no }}. %default is no
+
 -type exespec()   :: #{path    => path_element() | [ path_element() ],
                        name    => nonempty_string(), %optional
                        argspec => [arg_spec()],      %optional
                        exit_codes => [ #{ integer() => string() } ] %optional
                       }.
+
 -type runspec()   :: [{argid(), argvalue()}].
 
 %% ------------------------------------------------------------------
@@ -172,12 +178,13 @@ stop(ServerRef, Reason) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
+
 init({Module,{ExeSpec,Args},Options}) ->
    init({Module,{ExeSpec,Args},[],Options});
 
 init({Module,{ExeSpec,Args},RunSpec,Options}) ->
    process_flag(trap_exit, true), %make sure terminate is called if necessary
-   code:ensure_loaded(Module),
+   {module,_} = code:ensure_loaded(Module),
    le:setopt(debug,proplists:get_value(debug,Options,false)),
    State=#{module     =>Module,        %User module
            exespec    =>ExeSpec,       %Executable description
@@ -235,11 +242,11 @@ handle_call({?LEMSG,get,What}, _From, State) ->
 % CALL: Run executable
 % --------------------
 % TODO: Opts
-handle_call({?LEMSG,runit,_RunSpec,_Opts}, _From,
+handle_call({?LEMSG,runit,_RunSpec,Opts}, _From,
             State=#{port:=Port,exespec:=ES}) when is_port(Port) ->
    {reply, {error, {already_started,pathname(ES)}}, State};
 
-handle_call({?LEMSG,runit,RunSpec1,Opts}, _From,
+handle_call({?LEMSG,runit,RunSpec1,_Opts}, _From,
             State=#{port:=undefined,runspec:=RunSpec2}) ->
    RS3=le:kvmerge(RunSpec1,RunSpec2),
    State1=start_port(State#{runspec:=RS3}),
@@ -555,11 +562,13 @@ stop_port(State,Reason) ->
 % Module calls
 % ============
 
+-spec bad_response(Module::atom(),Function::atom(),Response::term()) -> no_return().
 bad_response(M,F,Resp) ->
    error_logger:error_msg("     ~s: Bad response from ~p:~p~n"
                           "     ~p~n",
                           [?MODULE,M,F,Resp]),
-   error(bad_response).
+   error(bad_response),
+   bad.
 
 check_fun(M,F,A,NotExportedValue) ->
    case erlang:function_exported(M,F,A) of
@@ -689,8 +698,8 @@ argopt(Id,ExeSpec) ->
       Opt -> string:concat(Opt," ")
    end.
 
-argname(Id,ExeSpec) ->
-   maps:get(name,argspec(Id,ExeSpec),"Unknown arg").
+%argname(Id,ExeSpec) ->
+%   maps:get(name,argspec(Id,ExeSpec),"Unknown arg").
 
 argvalue(Id,Value,ExeSpec) ->
    argvalue(Id,Value,ExeSpec,no).
@@ -766,9 +775,7 @@ quote_spaces(Str) ->
       false -> Str
    end.
 
-get_exe(app_cfg,RunSpec) ->
-   get_exe(le:option(exespec),RunSpec);
-
+-spec get_exe(exespec(), runspec()) -> string().
 get_exe(ExeSpec,RunSpec) when is_map(ExeSpec)  andalso is_list(RunSpec) ->
    case args2strl(ExeSpec,RunSpec,yes) of
       [""] -> pathname(ExeSpec);

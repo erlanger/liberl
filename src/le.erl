@@ -1,5 +1,5 @@
 -module(le).
--compile(export_all).
+%-compile(export_all).
 
 %%App configuration api
 -export([default/1,default/2,
@@ -63,7 +63,7 @@ setopt(App, Option, Value) when is_atom(App) ->
          try
             %TODO: put this in a better place or simply trust the
             %user will start the liberl app
-            application:ensure_started(gproc),
+            ok=application:ensure_started(gproc),
             gproc:set_value({p,l,{'$le_opt',Option}},Value),
             ok
          catch error:badarg ->
@@ -85,7 +85,7 @@ opt(App,Option,Default) when is_atom(App) ->
    case App of
       undefined ->
          try
-            application:ensure_started(gproc),
+            ok=application:ensure_started(gproc),
             gproc:get_value({p,l,{'$le_opt',Option}})
          catch error:badarg ->
                Default
@@ -98,7 +98,7 @@ appdir() ->
    case app() of
       undefined ->
          error(badarg);
-      App ->
+      {ok, App} ->
          appdir(App)
    end.
 
@@ -179,8 +179,8 @@ dir(Paths) when is_list(Paths) ->
                   pwd  -> {ok,C} = file:get_cwd(),C;
                   home -> {ok, [[H]]} = init:get_argument(home),H;
                   Dir  -> Dir
-               end || D <- le:flatdirs(Paths) ],
-         filename:join(le:flatdirs(Dirs1))
+               end || D <- flatdirs(Paths) ],
+         filename:join(flatdirs(Dirs1))
    end;
 
 dir(Path) when not is_list(Path) ->
