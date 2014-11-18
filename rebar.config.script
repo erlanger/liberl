@@ -86,21 +86,20 @@ CXX=case os:getenv("CXX") of
 end,
 
 Cfg1=FUN_RM_DEPS_UNLESS(ct,CONFIG,[meck,eixx]),
-Cfg2=FUN_IF_CMD(absent,ct,Cfg1,fun(Config,[]) ->
+
+% Build le_eixx port (only if running rebar ct)
+Cfg2=FUN_IF_CMD(present,ct,Cfg1,fun(Config,[]) ->
    %TODO: this needs to be fixed in eixx
    os:cmd("echo > deps/eixx/include/eixx/config.h"),
-   Config
-end,[]),
-
-% Set port building options
-lists:keymerge(1,
-    lists:keysort(1, [
-       {port_env,  [
-                     {"CXX", CXX }, %if CXX is undefined use g++
-                     {"CC",  CXX },
-                     {"CXXFLAGS", "$CXXFLAGS -std=c++11 -O3 -I include/ -I deps/eixx/include"}
-       ]},
-       {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]}
-    ]),
-    lists:keysort(1, Cfg2)).
-
+   lists:keymerge(1,
+       lists:keysort(1, [
+          {port_env,
+           [
+              {"CXX", CXX }, %if CXX is undefined use g++
+              {"CC",  CXX },
+              {"CXXFLAGS", "$CXXFLAGS -std=c++11 -O3 -I include/ -I deps/eixx/include"}
+           ]},
+          {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]}
+       ]),
+       lists:keysort(1, Config))
+end,[]).
