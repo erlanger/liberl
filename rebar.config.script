@@ -1,8 +1,98 @@
+%%------------------------------------------------------------------------------
+%%Utility functions
+%%------------------------------------------------------------------------------
+
+%% Dependency removal
+%% ------------------
+%Function to remove specified dependencies from configuration
+%  Cfg     -> the rebar.config option list
+%  Rm_deps -> [atom()] dependencies to remove
+FUN_RM_DEPS = fun (Cfg,Rm_deps) ->
+   case lists:keyfind(deps, 1, Cfg) of
+      {_, Deps0} ->
+         Deps1 = lists:filter(
+              fun(D) when is_atom(D) ->
+                 not lists:member(D, Rm_deps);
+
+                 (D) when is_tuple(D) ->
+                 not lists:member(element(1,D), Rm_deps)
+              end, Deps0),
+         lists:keyreplace(deps, 1, Cfg, {deps, Deps1});
+
+      false ->
+         Cfg
+   end
+end,
+
+% Function to remove dependencies UNLESS we are
+% running a specific rebar command
+%   Cmd -> the rebar command to check (e.g. ct or eunit)
+%   Config -> the rebar.config list to modify
+%   Rm_deps -> [atom()] dependencies to remove
+%
+% This function is useful, for example, to remove
+% test dependencies unless we are executing
+% a test command
+%
+FUN_IF_CMD= fun(Present,Cmd,Config,FUNC,FuncArgs) when is_atom(Cmd)->
+   Args = case init:get_plain_arguments() of
+       [_|A] -> A;  % rebar 'commands' and options
+       _ -> []
+   end,
+   RunFunc=case Present of
+      present ->  lists:member(atom_to_list(Cmd), Args);
+      absent  ->  not lists:member(atom_to_list(Cmd), Args)
+   end,
+   case RunFunc of
+      true  -> %Function is to be executed because cmd is present/absent
+         FUNC(Config,FuncArgs);
+
+      false ->
+         Config
+   end
+end,
+
+% Function to remove dependencies UNLESS we are
+% running a specific rebar command
+%   Cmd -> the rebar command to check (e.g. ct or eunit)
+%   Config -> the rebar.config list to modify
+%   Rm_deps -> [atom()] dependencies to remove
+%
+% This function is useful, for example, to remove
+% test dependencies unless we are executing
+% a test command
+%
+FUN_RM_DEPS_UNLESS= fun(Cmd,Config,Rm_deps) when is_atom(Cmd)->
+   FUN_IF_CMD(absent,Cmd,Config,FUN_RM_DEPS,Rm_deps)
+end,
+
+
+%%------------------------------------------------------------------------------
+%% Main script
+%%------------------------------------------------------------------------------
+
+%% This script does the following
+%% 1. Replace CXX with "g++" and set it as port_env if
+%%    it is not defined in the environment
+%% 2. Remove dependencies that are used for
+%%    test time only (e.g. meck), unless we are running
+%%    tests
+
+
+%Don't touch CXX if it is defined in the environment
 CXX=case os:getenv("CXX") of
    false -> "g++";
    Value -> Value
 end,
-% Replace configuration options read from rebar.config with those dynamically set below
+
+Cfg1=FUN_RM_DEPS_UNLESS(ct,CONFIG,[meck,eixx]),
+Cfg2=FUN_IF_CMD(absent,ct,Cfg1,fun(Config,[]) ->
+   %TODO: this needs to be fixed in eixx
+   os:cmd("echo > deps/eixx/include/eixx/config.h"),
+   Config
+end,[]),
+
+% Set port building options
 lists:keymerge(1,
     lists:keysort(1, [
        {port_env,  [
@@ -10,8 +100,7 @@ lists:keymerge(1,
                      {"CC",  CXX },
                      {"CXXFLAGS", "$CXXFLAGS -std=c++11 -O3 -I include/ -I deps/eixx/include"}
        ]},
-       {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]},
-       {post_hooks,[{'get-deps', "echo > deps/eixx/include/eixx/config.h"}] }
+       {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]}
     ]),
-    lists:keysort(1, CONFIG)).
+    lists:keysort(1, Cfg2)).
 
