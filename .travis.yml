@@ -16,4 +16,4 @@ before_install:
 language: erlang
 otp_release:
   - 17.1
-script: "rebar co && rebar eunit && rebar ct"
+script: "rebar co eunit ct"
