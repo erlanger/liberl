@@ -5,6 +5,7 @@
 -include_lib("test_server/include/test_server_line.hrl").
 
 -compile(export_all).
+-define(STATFILE,"/tmp/liberl.stats").
 
 %%--------------------------------------------------------------------
 %% Function: suite() -> Info
@@ -263,8 +264,8 @@ keep_alive(_Config) ->
 
    ct:pal("gen_exe state=~p",[R]),
    ?line true=meck:validate(tmod),
-   Comment = io_lib:format("ok, ~B processes restarted; ~.3f us/process",[Count,Diff]),
-   ct:pal(99,Comment),
+   Comment = io_lib:format("ok, ~B processes restarted; ~.3f us/process~n",[Count,Diff]),
+   file:write_file(?STATFILE,Comment,[append]),
    gen_exe:stop(Pid,normal),
    { comment, Comment }.
 
@@ -332,7 +333,8 @@ port_data(_Config) ->
    ?line true=meck:validate(tmod),
 
    gen_exe:stop(Pid,normal),
-   Comment = io_lib:format("ok, ~B msgs sent; ~.3f us/msg",[Count,Diff]),
+   Comment = io_lib:format("ok, ~B msgs sent; ~.3f us/msg~n",[Count,Diff]),
+   file:write_file(?STATFILE,Comment,[append]),
    { comment, Comment }.
 
 cast_forward(_Config) ->
