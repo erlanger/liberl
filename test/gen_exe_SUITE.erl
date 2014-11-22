@@ -254,7 +254,7 @@ keep_alive(_Config) ->
        {C,Info}
        end || C <- lists:seq(1,Count) ],
    T2=now(),
-   Diff=timer:now_diff(T2,T1)/1000,
+   Diff=timer:now_diff(T2,T1)/Count,
    %Make sure port exited 50 times and also
    %that restarts_normal returns the right number
    {Count, #{restarts_normal:=CountMinusOne} } = lists:last(C1),
@@ -263,7 +263,7 @@ keep_alive(_Config) ->
 
    ct:pal("gen_exe state=~p",[R]),
    ?line true=meck:validate(tmod),
-   Comment = io_lib:format("ok, ~B processes restarted; ~.3f ms/process",[Count,Diff/Count]),
+   Comment = io_lib:format("ok, ~B processes restarted; ~.3f us/process",[Count,Diff]),
    ct:pal(99,Comment),
    gen_exe:stop(Pid,normal),
    { comment, Comment }.
@@ -332,7 +332,7 @@ port_data(_Config) ->
    ?line true=meck:validate(tmod),
 
    gen_exe:stop(Pid,normal),
-   Comment = io_lib:format("ok, ~B msgs sent; ~.3f ms/msg",[Count,Diff/Count]),
+   Comment = io_lib:format("ok, ~B msgs sent; ~.3f us/msg",[Count,Diff]),
    { comment, Comment }.
 
 cast_forward(_Config) ->
