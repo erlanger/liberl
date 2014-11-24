@@ -6,7 +6,7 @@
          say/2, say/3]).
 
 say(Fmt,Args) when is_list(Fmt) ->
-   dsay(le:opt(debug),Fmt,Args).
+   dsay(true,Fmt,Args).
 
 say(Level,Fmt,Args) when is_list(Fmt) ->
    dsay(le:opt(debug),Level,Fmt,Args).
