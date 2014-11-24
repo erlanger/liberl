@@ -7,6 +7,7 @@ build
 *.beam
 *.o
 *.bin
+*.plt
 .rebar
 erl_crash.dump
 .deps
@@ -20,3 +21,4 @@ log
 logs
 c_src/le_eixx
 c_src/eixx
+deps

@@ -186,17 +186,18 @@ init({Module,{ExeSpec,Args},RunSpec,Options}) ->
    process_flag(trap_exit, true), %make sure terminate is called if necessary
    {module,_} = code:ensure_loaded(Module),
    le:setopt(debug,proplists:get_value(debug,Options,false)),
-   State=#{module     =>Module,        %User module
-           exespec    =>ExeSpec,       %Executable description
-           runspec    =>RunSpec,       %Runnning parameters [{key,value}]
-           port       =>undefined,     %Erlang port connecting to executable
-           exit_status=>undefined,     %Last exit status of executable
-           opts       =>Options,       %Options given by user on start
-           state      =>undefined,     %User module state
-           dmode      =>term,          %Default is to use binary_to_term
-                                       %can be rawbinary or term
-           running    =>undefined,     %Closing state of port, see stopit message
-           stopped_notify => undefined %Whom to notify after calling port_stop(...)
+   State=#{module     =>Module,         %User module
+           exespec    =>ExeSpec,        %Executable description
+           runspec    =>RunSpec,        %Runnning parameters [{key,value}]
+           port       =>undefined,      %Erlang port connecting to executable
+           exit_status=>undefined,      %Last exit status of executable
+           opts       =>Options,        %Options given by user on start
+           state      =>undefined,      %User module state
+           dmode      =>term,           %Default is to use binary_to_term
+                                        %can be rawbinary or term
+           running    =>undefined,      %Closing state of port, see stopit message
+           stopped_notify => undefined, %Whom to notify after calling port_stop(...)
+           endreason  =>undefined       %User reason for finishing
           },
    UserResp = call(Module,init,Args),
    gproc:add_local_counter({restarts,normal}, 0),
@@ -264,16 +265,8 @@ handle_call({?LEMSG,stopit,_Reason,_Timeout}, _From, State=#{running:=stopping})
 %Stop the port and if it doesn't exit within Timeout, kill it.
 handle_call({?LEMSG,stopit,Reason,Timeout}, From, State=#{port:=Port,running:=yes})
       when is_port(Port) ->
-   %Ask port to close, give it time to finish
-   port_cast({stop,Reason}),
-   try
-      {ok,_}=timer:apply_after(Timeout,gen_server,cast,[self(),{?LEMSG,killit,Port,Reason}]),
-      {noreply, State#{running:=stopping,stopped_notify:=From}}
-   catch error:badmatch ->
-         %% Couldn't setup timer, send msg to kill it immediately
-         gen_server:cast(self(),{?LEMSG,killit,Port,Reason}),
-         {noreply, State#{running:=stopping,stopped_notify:=From}}
-   end;
+   initiate_port_stop(Port,Timeout,Reason),
+   {noreply, State#{running:=stopping,stopped_notify:=From,endreason:=Reason}};
 
 %Ignore other stopit messages (e.g. when port is closing)
 handle_call({?LEMSG,stopit,_Reason,_Timeout}, _From, State) ->
@@ -485,8 +478,6 @@ handle_port_exit(State=#{exespec:=ES,runspec:=RS,opts:=Opts,
 
             {ok, UState}           -> State1#{state:=UState,running:=no};
 
-            {stop, Reason}         -> {stop,Reason};
-
             Other                  -> bad_response(M,port_exit,Other)
          end
    end,
@@ -505,7 +496,7 @@ start_port(State=#{port:=Port,exespec:=ES,running:=yes}) when is_port(Port) ->
 start_port(State=#{port:=undefined,module:=M,runspec:=RS}) ->
    %Run executable
    case  call(port_start,pre_start,State) of
-      {stop, Reason} -> {stop, Reason};
+      {stop, Reason} -> State#{endreason:=Reason,running:=no};
 
       {ok,RunSpec,UState}       ->
          % User RunSpec takes priority in the merge with State's RS
@@ -543,7 +534,10 @@ start_port1(State=#{module:=M,exespec:=ExeSpec,opts:=Opts},NewRS) ->
       % post_start call merges the user RunSpec with the state RunSpec
       % and updates the user UState
       State2=case call(port_start,post_start,State1) of
-         {stop,Reason} -> stop_port(State1,Reason);
+         {stop,Reason} -> %This will trigger a port_exit which will set running:=no
+                          initiate_port_stop(Port,?DEF_STOP_TIMEOUT,Reason),
+                          State1#{endreason:=Reason};
+
          NewState      -> NewState#{running:=yes}
       end,
       State2
@@ -554,9 +548,15 @@ start_port1(State=#{module:=M,exespec:=ExeSpec,opts:=Opts},NewRS) ->
          exit(port_not_started)
    end.
 
-stop_port(State,Reason) ->
-   gen_server:cast(self(),{?LEMSG,stopit,Reason,?DEF_STOP_TIMEOUT}),
-   State.
+initiate_port_stop(Port,Timeout,Reason) when is_port(Port) ->
+   %Ask port to close, give it time to finish
+   port_cast({stop,Reason}),
+   try
+      {ok,_}=timer:apply_after(Timeout,gen_server,cast,[self(),{?LEMSG,killit,Port,Reason}])
+   catch error:badmatch ->
+         %% Couldn't setup timer, send msg to kill it immediately
+         gen_server:cast(self(),{?LEMSG,killit,Port,Reason})
+   end.
 
 
 % Module calls
@@ -603,14 +603,16 @@ call(port_start,post_start,S=#{state:=UState,module:=M,
          check_fun(M,port_start,3,S)
    end;
 
-call(port_data,Data,S=#{dmode:=Dmode,module:=M,state:=UState,runspec:=RS}) ->
+call(port_data,Data,S=#{dmode:=Dmode,module:=M,state:=UState,runspec:=RS,port:=Port}) ->
    try
       Info=get_info(S),
       say(7,"   Calling ~p:port_data(~p,~p,~p,~p)",[M,Dmode,Data,Info,UState]),
       case M:port_data(Dmode,Data,Info,UState) of
          {ok,UState1}     -> S#{state:=UState1};
          {ok,RS1,UState1} -> S#{runspec:=le:kvmerge(RS1,RS),state:=UState1};
-         {stop, Reason}   -> {stop, Reason};
+         {stop, Reason}   -> %This will trigger port_exit which will set running:=no
+                             initiate_port_stop(Port,?DEF_STOP_TIMEOUT,Reason),
+                             S#{endreason:=Reason};
          Other            -> bad_response(M,port_data,Other)
       end
    catch error:undef ->
