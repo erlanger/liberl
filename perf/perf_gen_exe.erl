@@ -6,7 +6,7 @@
 -include_lib("liberl/include/utils.hrl").
 
 start() ->
-   start(300).
+   start(10000).
 
 start(Count) ->
    {ok,Pid}=gen_exe:start_link(?MODULE,{ #{ path => [{app,liberl},"c_src/le_eixx"],

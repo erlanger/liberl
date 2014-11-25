@@ -2,8 +2,7 @@
 %-compile(export_all).
 
 %%App configuration api
--export([default/1,default/2,
-         opt/1,opt/2,opt/3,
+-export([opt/1,opt/2,opt/3,
          setopt/2,setopt/3]).
 -export([dbg/1]).
 
@@ -34,20 +33,10 @@ dbg(Level) when is_integer(Level) ->
 %%===========================================================================
 %%TODO: provide option peristance to disk if user desires so
 
-default(Option) ->
-   default(app(),Option).
-
-default(App,Option) when is_atom(App) ->
-   try
-      default_from(Option,App:defaults())
-   catch _:_ ->
-         undefined
-   end.
-
 default_from(Option, Defaults) when is_list(Defaults) ->
-   APP=app(),
    case proplists:get_value(Option,Defaults) of
       undefined ->
+         APP=app(),
          error_logger:error_msg("     ~s:Unkown configuration value for '~p'.",[APP,Option]),
          error(badarg);
 
@@ -59,36 +48,31 @@ setopt(Option,Value) ->
 
 setopt(App, Option, Value) when is_atom(App) ->
    case App of
-      undefined ->
-         try
-            %TODO: put this in a better place or simply trust the
-            %user will start the liberl app
-            ok=application:ensure_started(gproc),
-            gproc:set_value({p,l,{'$le_opt',Option}},Value),
-            ok
-         catch error:badarg ->
-               gproc:reg({p,l,{'$le_opt',Option}},Value),
-               ok
-         end;
+      no_app ->
+         put(Option,Value);
       App ->
          gproc:set_env(l,App,Option,Value,[app_env]),
          ok
       end.
 
 opt(Option) ->
-   opt(app(),Option,default(Option)).
+   opt(app(),Option,undefined).
 
-opt(Option,Default) ->
-   opt(app(),Option,Default).
+opt(Option,Default) when not is_function(Default) ->
+   opt(app(),Option,Default);
+
+opt(Option,Defaultsfun) when is_function(Defaultsfun,0) ->
+   opt(app(),Option,default_from(Option,Defaultsfun()));
+
+opt(Option,Defaultfun) when is_function(Defaultfun,1) ->
+   opt(app(),Option,Defaultfun(Option)).
 
 opt(App,Option,Default) when is_atom(App) ->
    case App of
-      undefined ->
-         try
-            ok=application:ensure_started(gproc),
-            gproc:get_value({p,l,{'$le_opt',Option}})
-         catch error:badarg ->
-               Default
+      no_app ->
+         case get(Option) of
+            undefined -> Default;
+            Value     -> Value
          end;
       App ->
          gproc:get_env(l,App,Option,[app_env,{default,Default}])
@@ -96,9 +80,9 @@ opt(App,Option,Default) when is_atom(App) ->
 
 appdir() ->
    case app() of
-      undefined ->
+      no_app ->
          error(badarg);
-      {ok, App} ->
+      App ->
          appdir(App)
    end.
 
@@ -223,7 +207,15 @@ is_string(L) ->
 % ------------------
 
 app() ->
-   application:get_application().
+   case get('$le_appname') of
+      undefined ->
+         case application:get_application() of
+            undefined -> put('$le_appname', no_app),  no_app;
+            {ok, App} -> put('$le_appname', App), App
+         end;
+
+      App   -> App
+   end.
 
 %%%---------------------------------------------------------------------
 %%% Unit testing
@@ -258,25 +250,33 @@ test_process_opt() ->
       ?assertMatch(false,begin dbg(off), opt(debug) end),
       ?assertMatch(15, opt(myopt,15) ),
       ?assertError(badarg,default_from(myopt,[{myopt2,none},{myopt4,none}])),
-      ?assertMatch(one,default_from(myopt,[{myopt2,none},{myopt4,none},{myopt,one}]))
+      ?assertMatch(one,default_from(myopt,[{myopt2,none},{myopt4,none},{myopt,one}])),
+       ?assertMatch(defval2,
+             opt(myapp_opt3,
+                   fun() ->
+                      [ {opt1,def1}, {myapp_opt3,defval2} ]
+                   end )
+       ),
+       ?assertMatch(myvalue4,
+             opt(myapp_opt4,
+                   fun(myapp_opt4) ->
+                      myvalue4
+                   end )
+       )
    ].
 
 test_app_opt() ->
    [
       ?assertMatch({ok,on},
           begin
-             %ok=application:start(liberl),
              setopt(liberl,myapp_opt,on),
              D=application:get_env(liberl,myapp_opt),
-             %application:stop(liberl),
              D
           end),
        ?assertMatch(off,
           begin
-             %ok=application:start(liberl),
              setopt(liberl,myapp_opt1,off),
              D=opt(liberl,myapp_opt1,default),
-             %application:stop(liberl),
              D
           end)
    ].
@@ -293,10 +293,22 @@ test_dir() ->
       ?assertMatch("/",begin file:set_cwd("/"),dir(pwd) end),
       ?assert(?debugVal(dir([arch]))==?debugVal(erlang:system_info(system_architecture))),
       ?assert( begin D=dir({app,liberl}), string:str(D,"liberl")>0 end),
-      ?assert( begin D=dir({app,code}), string:str(D,"kernel")>0 end),
+      ?assert( begin D=dir({app,code}), string:str(D,"kernel-")>0 end),
       ?assertError(badarg, D=dir({app,crazy_app})),
       ?assertError(badarg, dir(app)), %% This throws an error b/c eunit does not have a default app
-      ?assertError(badarg, dir(priv)) %% This throws an error for the same reason
+      ?assertError(badarg, dir(priv)),%% This throws an error for the same reason
+      ?assert(
+         begin
+            erase(),
+            ok=meck:new(application, [unstick,passthrough]),
+            ok=meck:expect(application,
+                           get_application,
+                           fun() -> {ok,kernel} end),
+            D=appdir(),
+            true=meck:validate(application),
+            ok=meck:unload(application),
+            string:str(D,"kernel-")>0
+         end)
    ].
 
 test_kvmerge() ->
