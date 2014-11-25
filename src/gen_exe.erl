@@ -200,6 +200,7 @@ init({Module,{ExeSpec,Args},RunSpec,Options}) ->
            endreason  =>undefined       %User reason for finishing
           },
    UserResp = call(Module,init,Args),
+   application:ensure_started(gproc),
    gproc:add_local_counter({restarts,normal}, 0),
    gproc:add_local_counter({restarts,abnormal}, 0),
    case proplists:get_value(start,Options) of

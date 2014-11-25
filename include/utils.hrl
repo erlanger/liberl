@@ -22,10 +22,17 @@ dsay(true,Level,Fmt,Args) when is_integer(Level),
 dsay(false,_, _, _) ->
    ok;
 
+dsay(CurrentLevel,Level,Fmt,_Args) when is_integer(Level),
+                                       is_integer(CurrentLevel),
+                                       is_list(Fmt),
+                                       Level >  CurrentLevel ->
+   ok;
+
 dsay(CurrentLevel,Level,Fmt,Args) when is_integer(Level),
                                        is_integer(CurrentLevel),
-                                       is_list(Fmt) ->
-   dsay( (Level =< CurrentLevel), Fmt, Args).
+                                       is_list(Fmt),
+                                       Level =< CurrentLevel ->
+   dsay( true, Fmt, Args).
 
 dsay(false, _, _) ->
    ok;

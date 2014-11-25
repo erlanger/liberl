@@ -15,10 +15,10 @@ start(Count) ->
                                              #{id=>type}   %Second command-line argument
                                             ]
                                           },{self(),Count}},[start,shell] ),
-   T1=now(),
+   T1=os:timestamp(),
    [ gen_exe:port_cast(Pid,getcmdline) || _ <- lists:seq(1,Count) ],
    receive data_finished -> ok after 50000 -> timeout end,
-   T2=now(),
+   T2=os:timestamp(),
    Time=timer:now_diff(T2,T1),
    receive port_finished -> ok after 5000 -> timeout end,
 
