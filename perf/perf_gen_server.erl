@@ -49,9 +49,6 @@ rcv(Type) ->
 %% gen_server.
 
 init(Count) ->
-   %Port=open_port({spawn_executable,"../c_src/le_eixx"},
-   %               [binary,{packet,4},use_stdio,hide]),
-	%{ok, #state{cnt=Count,n=1,port=Port}}.
 	{ok, #state{cnt=Count,n=1}}.
 
 
@@ -67,9 +64,8 @@ handle_cast({From,_Msg}, S=#state{n=N,cnt=Count} ) when N==Count->
    From ! finished,
 	{stop, normal, S};
 
-handle_cast({From,Msg}, S=#state{n=N,port=Port})  ->
+handle_cast({From,Msg}, S=#state{n=N})  ->
    From ! Msg,
-   %say("n=~p",N),
 	{noreply, S#state{n=N+1}}.
 
 
