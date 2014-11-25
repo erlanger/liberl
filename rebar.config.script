@@ -97,9 +97,7 @@ Cfg2=FUN_IF_CMD(present,ct,Cfg1,fun(Config,[]) ->
               {"CC",  CXX },
               {"CXXFLAGS", "$CXXFLAGS -std=c++11 -O3 -I include/ -I deps/eixx/include"}
            ]},
-          {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]},
-          %TODO: this needs to be fixed in eixx
-          {post_hooks,[{'get-deps', "echo > deps/eixx/include/eixx/config.h"}] }
+          {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]}
        ]),
        lists:keysort(1, Config))
 end,[]).
