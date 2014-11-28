@@ -19,7 +19,7 @@
 %% Note: The suite/0 function is only meant to be used to return
 %% default data values, not perform any other operations.
 %%--------------------------------------------------------------------
-suite() -> [{timetrap, {seconds, 20}}].
+suite() -> [{timetrap, {seconds, 50}}].
 
 %%--------------------------------------------------------------------
 %% Function: groups() -> [Group]

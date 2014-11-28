@@ -95,6 +95,8 @@ Cfg2=FUN_IF_CMD(present,ct,Cfg1,fun(Config,[]) ->
            [
               {"CXX", CXX }, %if CXX is undefined use g++
               {"CC",  CXX },
+              %use '=' in -L to allow --sysroot to work for cross-compile
+              {"LDFLAGS", "$LDFLAGS -L=$ERL_EI_LIBDIR"},
               {"CXXFLAGS", "$CXXFLAGS -std=c++11 -O3 -I include/ -I deps/eixx/include"}
            ]},
           {port_specs,[{"c_src/le_eixx", ["c_src/le_eixx.cpp"]}]}
