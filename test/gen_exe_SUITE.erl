@@ -202,7 +202,7 @@ end_per_group(_group, Config) ->
 %% Note: This function is free to add any key/value pairs to the Config
 %% variable, but should NOT alter/remove any existing entries.
 %%--------------------------------------------------------------------
-init_per_testcase(TestCase, Config) ->
+init_per_testcase(_TestCase, Config) ->
    eprof:start_profiling([self()]),
    Config.
 
