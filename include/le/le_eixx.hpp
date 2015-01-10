@@ -57,14 +57,36 @@ inline std::string encode(const eterm& term)
    return sout;
 }
 
+inline bool prepare_streams()
+{
+   //Make sure cin/cout throw exceptions on failure
+   std::cout.exceptions(std::ios_base::failbit | std::ios_base::badbit);
+   std::cin.exceptions(std::ios_base::failbit | std::ios_base::badbit);
+
+   //Make sure C++ flushes its buffer
+   //immediately on insertion
+   std::cout.setf(std::ios::unitbuf);
+   std::ios::sync_with_stdio(true); //mostly here for documentation
+                                    //this is the default
+
+   //Make sure stdin/stdout are not
+   //buffered (hopefully the OS will honor this)
+   setbuf(stdin,0);
+   setbuf(stdout,0);
+   return true;
+}
+
 inline void send_term(const eterm& term)
 {
+   static bool prep_stdio = prepare_streams(); //Initialize streams on first call
+
+   (void) prep_stdio; //Ignore unused-var warning
+
    if (!term.empty()) {
       std::string s = encode(term);
       std::cout.write(s.c_str(),s.size());
    }
 }
-
 
 std::function<eterm(const eterm&)> make_dispatcher()
 { return [] (const eterm& value) { return nullterm(); }; }
@@ -96,6 +118,10 @@ inline std::size_t encode_size(const eterm& term)
 
 inline unsigned int to_number(const char c)
 { return static_cast<unsigned int>(static_cast<unsigned char>(c)); }
+
+template<typename ...Args>
+inline void send(const char* s,Args...args)
+{ send_term(eterm::format(s,args...)); }
 
 template<typename ...Args>
 inline eterm fmt(const char* s,Args...args)
@@ -149,24 +175,6 @@ inline void wait_and_dispatch(std::function<eterm(const eterm&) > term_dispatche
    std::cerr << "Received: " << in_term.to_string() << std::endl;
    std::cerr << "Sent:     " << (!out_term.empty() ? out_term.to_string():"--nothing--") << std::endl;
    #endif
-}
-
-inline void prepare_streams()
-{
-   //Make sure cin/cout throw exceptions on failure
-   std::cout.exceptions(std::ios_base::failbit | std::ios_base::badbit);
-   std::cin.exceptions(std::ios_base::failbit | std::ios_base::badbit);
-
-   //Make sure C++ flushes its buffer
-   //immediately on insertion
-   std::cout.setf(std::ios::unitbuf);
-   std::ios::sync_with_stdio(true); //mostly here for documentation
-                                    //this is the default
-
-   //Make sure stdin/stdout are not
-   //buffered (hopefully the OS will honor this)
-   setbuf(stdin,0);
-   setbuf(stdout,0);
 }
 
 //Enter event loop
