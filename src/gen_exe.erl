@@ -696,10 +696,7 @@ argspec(Id,ExeSpec) ->
    end.
 
 argopt(Id,ExeSpec) ->
-   case maps:get(argopt,argspec(Id,ExeSpec),"") of
-      "" -> "";
-      Opt -> string:concat(Opt," ")
-   end.
+   maps:get(argopt,argspec(Id,ExeSpec),"").
 
 %argname(Id,ExeSpec) ->
 %   maps:get(name,argspec(Id,ExeSpec),"Unknown arg").
@@ -747,16 +744,12 @@ args2strl(ExeSpec,RunSpec,QuoteSpaces) when is_map(ExeSpec) andalso is_list(RunS
       fun(#{id:=Id}=AS,Acc) ->
             case lists:keysearch(Id,1,RunSpec) of
                {value,{Id,Value}} -> %It's in Runspec, put it in
-                  lists:append([Acc,[?FMT("~s~s",
-                       [argopt(Id,ExeSpec),
-                        argvalue(Id,Value,ExeSpec,QuoteSpaces)])]]);
+                  lists:append([Acc,[ optandvalue(Id,ExeSpec,Value,QuoteSpaces) ]]);
 
                false      -> %Put it in if it is required by ExeSpec
                   case AS of
                      #{required:=yes} ->
-                        lists:append([Acc,[?FMT("~s~s",
-                             [argopt(Id,ExeSpec),
-                              argvalue(Id,default,ExeSpec,QuoteSpaces)])]]);
+                        lists:append([Acc,[ optandvalue(Id,ExeSpec,default,QuoteSpaces) ]]);
 
                      _NotRequired     -> Acc
                   end
@@ -764,6 +757,14 @@ args2strl(ExeSpec,RunSpec,QuoteSpaces) when is_map(ExeSpec) andalso is_list(RunS
       end,
       "",
       ArgsSpec).
+
+optandvalue(Id,ExeSpec,Value,QuoteSpaces) ->
+   Opt=argopt(Id,ExeSpec),
+   Value1=argvalue(Id,Value,ExeSpec,QuoteSpaces),
+   case Opt=="" orelse Value=="" of
+      true  -> ?FMT("~s~s",  [Opt,Value1 ]);
+      false -> ?FMT("~s ~s", [Opt,Value1 ])
+   end.
 
 esname(ExeSpec) when is_map(ExeSpec) ->
    maps:get(name,ExeSpec,"unnamed").
