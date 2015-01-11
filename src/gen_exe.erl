@@ -761,7 +761,7 @@ args2strl(ExeSpec,RunSpec,QuoteSpaces) when is_map(ExeSpec) andalso is_list(RunS
 optandvalue(Id,ExeSpec,Value,QuoteSpaces) ->
    Opt=argopt(Id,ExeSpec),
    Value1=argvalue(Id,Value,ExeSpec,QuoteSpaces),
-   case Opt=="" orelse Value=="" of
+   case Opt=="" orelse Value1=="" of
       true  -> ?FMT("~s~s",  [Opt,Value1 ]);
       false -> ?FMT("~s ~s", [Opt,Value1 ])
    end.

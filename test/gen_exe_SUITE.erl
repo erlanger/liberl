@@ -374,7 +374,8 @@ exespec(_Config) ->
                         #{id=>str2,               default=>hi,     required=>yes},
                         #{id=>opt1, argopt=>"-o", default=>5,      required=>yes},
                         #{id=>num1, argopt=>"-f", default=>1.0,    required=>yes},
-                        #{id=>opt2, argopt=>"-p",                  required=>no}
+                        #{id=>opt2, argopt=>"-p",                  required=>no},
+                        #{id=>opt3, argopt=>"-q",                  required=>yes}
                       ]},
 
    {ok,Pid}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,19}]),
@@ -382,7 +383,7 @@ exespec(_Config) ->
 
    %Test Exespec at start_link
    CmdL=receive {data,L,_} -> L end,
-   [_ExecName," hello, got spaces ","hi", "-o 5","-f 1.0"] = CmdL,
+   [_ExecName," hello, got spaces ","hi", "-o 5","-f 1.0","-q"] = CmdL,
    gen_exe:port_stop(Pid,"Bye"),
 
    %Test Runparams merging with Exespec at start_link
@@ -390,21 +391,21 @@ exespec(_Config) ->
    {ok,Pid1}=gen_exe:start_link(tmod,{ExeSpec,self()},[start,{debug,19},{runspec,RunSpec}]),
    gen_exe:port_cast(Pid1,getcmdline),
    CmdL1=receive {data,L1,_} -> L1 end,
-   [_ExecName,"another string","hi", "-o 5","-f 1.0"] = CmdL1,
+   [_ExecName,"another string","hi", "-o 5","-f 1.0","-q"] = CmdL1,
    gen_exe:port_stop(Pid1,"Bye"),
 
    %Test port stop/start keeps runparams
    gen_exe:port_start(Pid1,[]),
    gen_exe:port_cast(Pid1,getcmdline),
    CmdL2=receive {data,L2,_} -> L2 end,
-   [_ExecName,"another string","hi","-o 5","-f 1.0"] = CmdL2,
+   [_ExecName,"another string","hi","-o 5","-f 1.0","-q"] = CmdL2,
    gen_exe:port_stop(Pid1,"Bye"),
 
    %Test port_start runspec merging
    gen_exe:port_start(Pid1,[{str1,"I am very happy"},{opt2,pflag}]),
    gen_exe:port_cast(Pid1,getcmdline),
    CmdL3=receive {data,L3,_} -> L3 end,
-   [_ExecName,"I am very happy","hi","-o 5","-f 1.0","-p pflag"] = CmdL3,
+   [_ExecName,"I am very happy","hi","-o 5","-f 1.0","-p pflag","-q"] = CmdL3,
    gen_exe:port_stop(Pid1,"Bye"),
 
    gen_exe:stop(Pid1,normal),
