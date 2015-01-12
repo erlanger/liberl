@@ -75,7 +75,13 @@ opt(App,Option,Default) when is_atom(App) ->
             Value     -> Value
          end;
       App ->
-         gproc:get_env(l,App,Option,[app_env,{default,Default}])
+         try
+            gproc:get_env(l,App,Option,[app_env,{default,Default}])
+         catch
+            %Get around bug in gproc that doesn't return Default if
+            %value is not cached
+            error:badarg -> Default
+         end
    end.
 
 appdir() ->
