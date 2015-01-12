@@ -28,6 +28,10 @@ dsay(CurrentLevel,Level,Fmt,_Args) when is_integer(Level),
                                        Level >  CurrentLevel ->
    ok;
 
+dsay(undefined,Level,Fmt,Args) when is_integer(Level),
+                                       is_list(Fmt) ->
+   dsay( true, Fmt, Args);
+
 dsay(CurrentLevel,Level,Fmt,Args) when is_integer(Level),
                                        is_integer(CurrentLevel),
                                        is_list(Fmt),
