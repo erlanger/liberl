@@ -421,6 +421,7 @@ handle_cast(Msg, State=#{module:=M,state:=UState}) ->
 % Terminate & Code change
 % -----------------------
 terminate(Reason, #{module:=M,state:=UState}) ->
+   port_cast({stop,Reason}),
    say(2,"   Terminating due to ~p",[Reason]),
    try
    say(7,"   Calling ~p:terminate(~p,~p)",[M,Reason,UState]),
