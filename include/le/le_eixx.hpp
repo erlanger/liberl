@@ -19,6 +19,7 @@ namespace LIBERL_NAMESPACE {
       bool  input_available();
       bool check_stop_term(const eterm& term_in,
             std::function<eterm(const eterm&)> stop_fun);
+      uint64_t get_packet_size();
    }
 
    struct eof:public std::ios_base::failure
@@ -91,23 +92,6 @@ namespace LIBERL_NAMESPACE {
       }
    }
 
-   inline uint64_t get_packet_size() {
-      char buf[4];
-      const char* bufp=buf;
-
-      impl::read(buf,hdr_size());
-      switch(hdr_size()) {
-         case 1:
-            return get8(bufp);
-         case 2:
-            return get16be(bufp);
-         case 4:
-            return get32be(bufp);
-         default:
-            throw(std::invalid_argument("Invalid header size, only 1,2,4 are accepted for reading"));
-      }
-   }
-
    inline eterm read_term(bool block=true)
    {
       static bool prep_stdio = prepare_streams(); //Initialize streams on first call
@@ -119,7 +103,7 @@ namespace LIBERL_NAMESPACE {
       if (!block && !impl::input_available()) return nullterm();
 
       //Read size header and reserve space in buffer
-      uint64_t sz = get_packet_size();
+      uint64_t sz = impl::get_packet_size();
       if (buf.capacity() < sz)
          buf.reserve(sz);
 
@@ -155,9 +139,6 @@ namespace LIBERL_NAMESPACE {
 
    inline std::size_t encode_size(const eterm& term)
    { return term.encode_size(hdr_size(),true); }
-
-   inline unsigned int to_number(const char c)
-   { return static_cast<unsigned int>(static_cast<unsigned char>(c)); }
 
    template<typename ...Args>
       inline void send(const char* s,Args...args)
@@ -301,6 +282,24 @@ namespace LIBERL_NAMESPACE {
             return false;
          }
       }
+
+   inline uint64_t get_packet_size() {
+      char buf[4];
+      const char* bufp=buf;
+
+      impl::read(buf,hdr_size());
+      switch(hdr_size()) {
+         case 1:
+            return get8(bufp);
+         case 2:
+            return get16be(bufp);
+         case 4:
+            return get32be(bufp);
+         default:
+            throw(std::invalid_argument("Invalid header size, only 1,2,4 are accepted for reading"));
+      }
+   }
+
    }
 
 }
