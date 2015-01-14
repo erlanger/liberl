@@ -88,7 +88,11 @@ namespace LIBERL_NAMESPACE {
 
       if (!term.empty()) {
          std::string s = encode(term);
-         std::cout.write(s.c_str(),s.size());
+         if (std::cout)
+            std::cout.write(s.c_str(),s.size());
+         else
+            std::cerr << "Unable to write to stdout:" << std::endl
+                      << "make sure your program is not writing to STDOUT" << std::endl;
       }
    }
 
