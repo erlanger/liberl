@@ -680,7 +680,7 @@ get_response(handle_call,UserResp,State) ->
 
 % Human message for program exit status code
 status_msg(Status,ExeSpec) ->
-      Codes=maps:get(exit_codes,ExeSpec,#{}),
+      Codes=maps:get(exit_codes,ExeSpec,#{ 0 => "OK"}),
       maps:get(Status,Codes,?FMT("~p - Unknown exit value ",[status(Status)])).
 
 % ExeSpec,RunSpec and Argument handling
