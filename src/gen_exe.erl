@@ -312,7 +312,7 @@ handle_info({Port, {data, Bin}}, State = #{module:=M,port:=Port,exespec:=ES, dmo
    State2=case Dmode of
       term ->
          Term=binary_to_term(Bin),
-         say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Term]),
+         say(8,"   ~s: Received from port ~s:~n    ~200p",[M,esname(ES),Term]),
          case Term of
             %This is the reply to a port_call, send reply back to caller
             {le_reply,Reply,Tag} ->
@@ -327,7 +327,7 @@ handle_info({Port, {data, Bin}}, State = #{module:=M,port:=Port,exespec:=ES, dmo
          end;
 
       rawbinary ->
-         say(8,"   ~s: Received from port ~s: ~200p",[M,esname(ES),Bin]),
+         say(8,"   ~s: Received from port ~s:~n    ~200p",[M,esname(ES),Bin]),
          call(port_data,Bin,State)
    end,
    {noreply, State2};
@@ -424,7 +424,7 @@ terminate(Reason, #{module:=M,state:=UState}) ->
    port_cast({stop,Reason}),
    say(2,"   Terminating due to ~p",[Reason]),
    try
-   say(7,"   Calling ~p:terminate(~p,~p)",[M,Reason,UState]),
+   say(7,"   Calling ~p:terminate(~n   ~p,~n   ~p)",[M,Reason,UState]),
       M:terminate(Reason,UState)
    catch error:undef ->
          ok
@@ -432,7 +432,7 @@ terminate(Reason, #{module:=M,state:=UState}) ->
 
 code_change(OldVsn, State=#{module:=M,state:=UState}, Extra) ->
    try
-      say(7,"   Calling ~p:code_change(~p,~p,~p)",
+      say(7,"   Calling ~p:code_change(~n   ~p,~n   ~p,~n   ~p)",
           [M,OldVsn,UState,Extra]),
       M:code_change(OldVsn,UState,Extra)
    catch error:undef ->
@@ -584,7 +584,7 @@ check_fun(M,F,A,NotExportedValue) ->
 call(port_start,pre_start,State=#{state:=UState,module:=M}) ->
    try
       Info=get_info(State),
-      say(7,"   Calling ~p:port_start(pre_start,~p,~p)",[M,Info,UState]),
+      say(7,"   Calling ~p:port_start(~n   pre_start,~n   ~p,~n   ~p)",[M,Info,UState]),
       M:port_start(pre_start,Info,UState)
    catch error:undef ->
       check_fun(M,port_start,3,{ok, UState})
@@ -594,7 +594,7 @@ call(port_start,post_start,S=#{state:=UState,module:=M,
                                runspec:=RS}) ->
    try
       Info=get_info(S),
-      say(7,"   Calling ~p:port_start(post_start,~p,~p)",[M,Info,UState]),
+      say(7,"   Calling ~p:port_start(~n   post_start,~n   ~p,~n   ~p)",[M,Info,UState]),
       case M:port_start(post_start,Info,UState) of
          {ok,UState1}     -> S#{state:=UState1};
          {ok,RS1,UState1} -> S#{runspec:=le:kvmerge(RS1,RS),state:=UState1};
@@ -608,7 +608,7 @@ call(port_start,post_start,S=#{state:=UState,module:=M,
 call(port_data,Data,S=#{dmode:=Dmode,module:=M,state:=UState,runspec:=RS,port:=Port}) ->
    try
       Info=get_info(S),
-      say(7,"   Calling ~p:port_data(~p,~p,~p,~p)",[M,Dmode,Data,Info,UState]),
+      say(7,"   Calling ~p:port_data(~n   ~p,~n   ~p,~n   ~p,~n   ~p)",[M,Dmode,Data,Info,UState]),
       case M:port_data(Dmode,Data,Info,UState) of
          {ok,UState1}     -> S#{state:=UState1};
          {ok,RS1,UState1} -> S#{runspec:=le:kvmerge(RS1,RS),state:=UState1};
@@ -632,7 +632,7 @@ call(M,init,Args) ->
 call(port_exit,State=#{state:=UState,module:=M}) ->
    try
       Info=get_info(State),
-      say(7,"   Calling ~p:port_exit(~p,~p)",[M,Info,UState]),
+      say(7,"   Calling ~p:port_exit(~n   ~p,~n   ~p)",[M,Info,UState]),
       M:port_exit(Info,UState)
    catch error:undef ->
          check_fun(M,port_exit,2,{ok,undefined})
