@@ -59,7 +59,7 @@ groups() -> [].
 %%      NB: By default, we export all 1-arity user defined functions
 %%--------------------------------------------------------------------
 all() ->
-    [ {exports, Functions} | _ ] = ?MODULE:module_info(),
+    [ {module,_}, {exports, Functions} | _ ] = ?MODULE:module_info(),
     [ FName || {FName, _} <- lists:filter(
                                fun ({module_info,_}) -> false;
                                    ({all,_}) -> false;

@@ -13,7 +13,7 @@ say(Level,Fmt,Args) when is_list(Fmt) ->
 
 %Debug commands
 dsay(Fmt,Args) ->
-   dsay(true,Fmt, Args).
+   dsay(le:opt(debug),1,Fmt, Args).
 
 dsay(true,Level,Fmt,Args) when is_integer(Level),
                                is_list(Fmt) ->
